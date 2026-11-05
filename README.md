@@ -1,4 +1,5 @@
 # Vortex Mail
+[Français](README.fr.md) · **English**
 
 A multi-account desktop mail client for Linux and Windows, written in Rust (Tauri 2) with a
 React 18 / Fluent UI v9 interface. IMAP/SMTP mail, synchronised calendars and contacts, and a user
