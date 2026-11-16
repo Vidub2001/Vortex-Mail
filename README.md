@@ -1,17 +1,63 @@
+<div align="center">
+
+<img src="docs/img/icon.png" width="104" height="104" alt="">
+
 # Vortex Mail
+
+**All your mail accounts in one inbox, with calendar and contacts.**<br>
+Free desktop email client for Linux and Windows, built with Rust and Tauri.
+
+[![Release](https://img.shields.io/github/v/release/Vidub2001/Vortex-Mail?color=1976d2)](https://github.com/Vidub2001/Vortex-Mail/releases/latest)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-3cc48a)](LICENSE)
+![Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0b2545)
+![Rust | Tauri 2](https://img.shields.io/badge/Rust-Tauri%202-ef5a5f)
+
+[**Download**](https://github.com/Vidub2001/Vortex-Mail/releases/latest) · [Website](https://vortexmail.fr) · [Build guide](docs/COMPILATION.md) · [Threat model](docs/MODELE-MENACE.md)
+
 [Français](README.fr.md) · **English** · [Español](README.es.md)
 
-A multi-account desktop mail client for Linux and Windows, written in Rust (Tauri 2) with a
-React 18 / Fluent UI v9 interface. IMAP/SMTP mail, synchronised calendars and contacts, and a user
-interface available in French, English and Spanish.
+<br>
 
-What makes it different: a message can be filed into a folder **of any account** — by hand
-(drag and drop, "Move to") or automatically with rules — and cross-account moves are journaled so
-that nothing is lost or duplicated if the network drops halfway.
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/hero-dark.webp"><img src="docs/img/hero-light.webp" alt="Vortex Mail: unified inbox with an open message" width="100%"></picture>
 
-> **Status:** early release (0.1.0), in daily use by its author. Expect rough edges.
+</div>
+
+## Why Vortex Mail
+
+- **One inbox for every account.** Gmail, Outlook.com, personal O365 accounts and any IMAP server, unified or side by side.
+- **File across accounts.** Drag a message from one account to a folder of another, or let rules do it. Moves are journaled: nothing is lost or duplicated if the network drops.
+- **Calendar and contacts.** Google, Outlook.com, CalDAV and CardDAV, plus local calendars and address books. Answer invitations straight from the message.
+- **Private by design.** No Vortex Mail server, no ads, no telemetry. Messages are shown without scripts, remote images wait for your approval, the local cache is encrypted.
+- **S/MIME.** Sign and encrypt your messages, check the signatures you receive.
+- **Works the way you do.** Offline mode, rules, reminders, powerful search, a portable Windows version and an interface in French, English and Spanish.
+
+<table>
+<tr>
+<td width="33%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/agenda-dark.webp"><img src="docs/img/agenda-light.webp" alt="Week calendar with events from several accounts"></picture><br><sub>Calendar</sub></td>
+<td width="33%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/fiche-dark.webp"><img src="docs/img/fiche-light.webp" alt="Event details in the calendar"></picture><br><sub>Invitations</sub></td>
+<td width="33%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/redaction-dark.webp"><img src="docs/img/redaction-light.webp" alt="Compose window"></picture><br><sub>Writing</sub></td>
+</tr>
+</table>
+
+## Download
+
+Releases are built from this repository by GitHub Actions. Each one comes with `SHA256SUMS` to check the files.
+
+| System | File |
+|---|---|
+| Ubuntu, Debian | `.deb` package |
+| Any Linux distribution | `AppImage` |
+| Windows 10 and 11 | `.exe` installer |
+| Windows, no installation | portable `.zip` |
+
+Windows files are not signed yet, so Windows may show a warning on first install.
+
+> **Status:** version 0.2.2, used every day by its author. Feedback and bug reports are welcome.
 
 ## Features
+
+<details>
+<summary><strong>Full feature list</strong></summary>
 
 **Mail**
 - IMAP/SMTP accounts: SSL/TLS or STARTTLS; password or OAuth2 sign-in (Outlook.com, O365 personal
@@ -67,7 +113,7 @@ that nothing is lost or duplicated if the network drops halfway.
 
 **Security**
 - No password or token is ever written to a plain file: everything lives in the system keyring
-  (GNOME Keyring / Secret Service on Linux, Credential Manager on Windows), or in the encrypted
+  (GNOME Keyring / Secret Service on Linux, the Windows credential store), or in the encrypted
   vault in portable mode.
 - Encrypted backups (PBKDF2-HMAC-SHA256, ChaCha20, HMAC).
 - Automated checks before every merge (`make audit`): dependencies (cargo-deny, npm audit), Semgrep
@@ -76,13 +122,15 @@ that nothing is lost or duplicated if the network drops halfway.
   responses…). See [docs/MODELE-MENACE.md](docs/MODELE-MENACE.md) and [docs/AUDIT.md](docs/AUDIT.md)
   (in French).
 
+</details>
+
 ## Getting started
 
 Requirements: Rust (stable), Node.js 18+ and the Tauri 2 system dependencies for your platform
 (WebKitGTK on Linux, WebView2 on Windows).
 
 ```bash
-git clone <repository-url> vortexmail
+git clone https://github.com/Vidub2001/Vortex-Mail.git vortexmail
 cd vortexmail
 npm install
 npm run tauri dev
@@ -133,13 +181,16 @@ for Google) in the account settings; they are stored in the keyring and never di
 |---|---|---|
 | Accounts (`accounts.json`, no passwords) | `~/.config/fr.vortexmail.client/` | `%APPDATA%\fr.vortexmail.client\` |
 | Mail, calendar and contacts cache (`cache.sqlite`) | `~/.local/share/fr.vortexmail.client/` | `%APPDATA%\fr.vortexmail.client\` |
-| Passwords and tokens | keyring, service `vortexmail` | Credential Manager |
+| Passwords and tokens | keyring, service `vortexmail` | Windows credential store |
 | Portable mode | — | `data\` folder next to the executable |
 
 The cache can be deleted safely: it is rebuilt from the servers. Installations made under the
 former name (FluxMail) are migrated automatically on first start.
 
 ## Project layout
+
+<details>
+<summary><strong>Show the project layout</strong></summary>
 
 ```
 crates/imap-lite/        dependency-free IMAP client: protocol, literals, UTF-7, IDLE, dates
@@ -185,9 +236,13 @@ docs/plan-lots.md        plan of fix and feature batches (French)
 fuzz/, tests/            fuzzing, regression corpus, interface tests
 ```
 
+</details>
+
 ## Roadmap
 
-Done:
+<details>
+<summary><strong>Done so far</strong></summary>
+
 - ~~Persistent cross-account move journal; search across all folders.~~
 - ~~IDLE notifications (real-time new mail).~~
 - ~~Writing and sending (SMTP), reply and forward.~~
@@ -203,6 +258,8 @@ Done:
 - ~~Fixes from the November 2026 code review (security, data safety, calendar time zones),
   fuzzing, threat model, Rust coding rules.~~
 - ~~Background operation: notification area, rules and notifications, missed reminders.~~
+
+</details>
 
 Next:
 1. Polish: faster startup, translated folder names, first tests of the display.
@@ -229,7 +286,7 @@ through `tr!` with entries in `src-tauri/src/locales/`.
 
 ## Downloads and code signing
 
-Releases are built from this repository by GitHub Actions and published on the Releases page, with the SHA-256 checksums of every file (`SHA256SUMS`). Windows files are signed: free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). See the [code signing policy](CODE_SIGNING.md).
+Releases are built from this repository by GitHub Actions and published on the Releases page, with the SHA-256 checksums of every file (`SHA256SUMS`). Windows files are not signed yet. Once the SignPath Foundation application is accepted: free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). See the [code signing policy](CODE_SIGNING.md).
 
 ## License
 

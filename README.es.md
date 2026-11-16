@@ -1,18 +1,63 @@
+<div align="center">
+
+<img src="docs/img/icon.png" width="104" height="104" alt="">
+
 # Vortex Mail
+
+**Todas tus cuentas de correo en una sola bandeja de entrada, con calendario y contactos.**<br>
+Cliente de correo libre para Linux y Windows, escrito en Rust con Tauri.
+
+[![Release](https://img.shields.io/github/v/release/Vidub2001/Vortex-Mail?color=1976d2)](https://github.com/Vidub2001/Vortex-Mail/releases/latest)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-3cc48a)](LICENSE)
+![Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0b2545)
+![Rust | Tauri 2](https://img.shields.io/badge/Rust-Tauri%202-ef5a5f)
+
+[**Descargar**](https://github.com/Vidub2001/Vortex-Mail/releases/latest) · [Sitio web](https://vortexmail.fr/es/) · [Compilación](docs/COMPILATION.md) · [Modelo de amenazas](docs/MODELE-MENACE.md)
 
 [Français](README.fr.md) · [English](README.md) · **Español**
 
-Cliente de correo de escritorio multicuenta para Linux y Windows, escrito en Rust (Tauri 2) con una
-interfaz React 18 / Fluent UI v9. Correo IMAP/SMTP, calendarios y contactos sincronizados, e
-interfaz en francés, inglés y español.
+<br>
 
-Lo que lo distingue: un mensaje puede archivarse en una carpeta **de cualquier cuenta**, a mano
-(arrastrar y soltar, «Mover a») o automáticamente mediante reglas. Los movimientos entre cuentas
-quedan registrados en un diario: no se pierde ni se duplica nada si la red se corta a mitad.
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/hero-dark.webp"><img src="docs/img/hero-light.webp" alt="Vortex Mail: bandeja de entrada unificada con un mensaje abierto" width="100%"></picture>
 
-> **Estado:** primera versión (0.1.0), usada a diario por su autor.
+</div>
+
+## Por qué Vortex Mail
+
+- **Una bandeja para todas tus cuentas.** Gmail, Outlook.com, cuentas personales de O365 y cualquier servidor IMAP, unificadas o lado a lado.
+- **Archivar entre cuentas.** Arrastra un mensaje de una cuenta a una carpeta de otra, o deja que lo hagan las reglas. Los movimientos quedan registrados: no se pierde ni se duplica nada si la red se corta.
+- **Calendario y contactos.** Google, Outlook.com, CalDAV y CardDAV, además de calendarios y libretas «En este equipo». Responde a las invitaciones desde el mensaje.
+- **Privado por diseño.** Ningún servidor de Vortex Mail, sin publicidad ni telemetría. Los mensajes se muestran sin scripts, las imágenes remotas esperan tu permiso y la caché local está cifrada.
+- **S/MIME.** Firma y cifra tus mensajes, comprueba las firmas que recibes.
+- **Se adapta a tu forma de trabajar.** Sin conexión, reglas, recordatorios, búsqueda precisa, versión portátil para Windows e interfaz en francés, inglés y español.
+
+<table>
+<tr>
+<td width="33%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/agenda-dark.webp"><img src="docs/img/agenda-light.webp" alt="Calendario semanal con citas de varias cuentas"></picture><br><sub>Calendario</sub></td>
+<td width="33%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/fiche-dark.webp"><img src="docs/img/fiche-light.webp" alt="Detalle de una cita en el calendario"></picture><br><sub>Invitaciones</sub></td>
+<td width="33%" align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/img/redaction-dark.webp"><img src="docs/img/redaction-light.webp" alt="Ventana de redacción"></picture><br><sub>Redacción</sub></td>
+</tr>
+</table>
+
+## Descargar
+
+Las versiones se compilan a partir de este repositorio con GitHub Actions. Cada una incluye `SHA256SUMS` para comprobar los archivos.
+
+| Sistema | Archivo |
+|---|---|
+| Ubuntu, Debian | paquete `.deb` |
+| Cualquier distribución Linux | `AppImage` |
+| Windows 10 y 11 | instalador `.exe` |
+| Windows, sin instalación | versión portátil `.zip` |
+
+Los archivos de Windows aún no están firmados: Windows puede mostrar un aviso en la primera instalación.
+
+> **Estado:** versión 0.2.2, usada a diario por su autor. Se agradecen los comentarios y los avisos de errores.
 
 ## Funciones
+
+<details>
+<summary><strong>Todas las funciones</strong></summary>
 
 **Correo**
 - Cuentas IMAP/SMTP: SSL/TLS o STARTTLS; contraseña o inicio de sesión OAuth2 (Outlook.com, cuentas
@@ -74,7 +119,7 @@ quedan registrados en un diario: no se pierde ni se duplica nada si la red se co
 
 **Seguridad**
 - Ninguna contraseña ni token se escribe en un archivo sin cifrar: todo se guarda en el llavero del
-  sistema (GNOME Keyring / Secret Service en Linux, Administrador de credenciales en Windows), o en
+  sistema (GNOME Keyring / Secret Service en Linux, almacén de credenciales de Windows), o en
   el almacén cifrado en modo portátil.
 - Copias de seguridad cifradas (PBKDF2-HMAC-SHA256, ChaCha20, HMAC).
 - Controles automáticos antes de cada fusión (`make audit`): dependencias (cargo-deny, npm audit),
@@ -83,13 +128,15 @@ quedan registrados en un diario: no se pierde ni se duplica nada si la red se co
   iCalendar, respuestas de red…). Véanse [docs/MODELE-MENACE.md](docs/MODELE-MENACE.md) y
   [docs/AUDIT.md](docs/AUDIT.md) (en francés).
 
+</details>
+
 ## Primeros pasos
 
 Requisitos: Rust (estable), Node.js 18+ y las dependencias de sistema de Tauri 2 para su plataforma
 (WebKitGTK en Linux, WebView2 en Windows).
 
 ```bash
-git clone <url-del-repositorio> vortexmail
+git clone https://github.com/Vidub2001/Vortex-Mail.git vortexmail
 cd vortexmail
 npm install
 npm run tauri dev
@@ -142,13 +189,16 @@ en la configuración de la cuenta; se guardan en el llavero y no se vuelven a mo
 |---|---|---|
 | Cuentas (`accounts.json`, sin contraseñas) | `~/.config/fr.vortexmail.client/` | `%APPDATA%\fr.vortexmail.client\` |
 | Caché de correo, calendario y contactos (`cache.sqlite`) | `~/.local/share/fr.vortexmail.client/` | `%APPDATA%\fr.vortexmail.client\` |
-| Contraseñas y tokens | llavero, servicio `vortexmail` | Administrador de credenciales |
+| Contraseñas y tokens | llavero, servicio `vortexmail` | almacén de credenciales de Windows |
 | Modo portátil | — | carpeta `data\` junto al ejecutable |
 
 La caché puede borrarse sin riesgo: se reconstruye desde los servidores. Las instalaciones hechas
 con el nombre anterior (FluxMail) se migran automáticamente en el primer inicio.
 
 ## Estructura del proyecto
+
+<details>
+<summary><strong>Ver la estructura del proyecto</strong></summary>
 
 ```
 crates/imap-lite/        cliente IMAP sin dependencias: protocolo, literales, UTF-7, IDLE, fechas
@@ -194,9 +244,13 @@ docs/plan-lots.md        plan de lotes de correcciones y mejoras (en francés)
 fuzz/, tests/            fuzzing, corpus de no regresión, pruebas de la interfaz
 ```
 
+</details>
+
 ## Hoja de ruta
 
-Hecho:
+<details>
+<summary><strong>Ya hecho</strong></summary>
+
 - ~~Diario persistente de movimientos entre cuentas; búsqueda en todas las carpetas.~~
 - ~~Notificaciones IDLE (correo nuevo en tiempo real).~~
 - ~~Redacción y envío (SMTP), responder y reenviar.~~
@@ -213,6 +267,8 @@ Hecho:
   zonas horarias del calendario), fuzzing, modelo de amenazas, reglas de código Rust.~~
 - ~~Funcionamiento en segundo plano: área de notificación, reglas y notificaciones, recordatorios
   perdidos.~~
+
+</details>
 
 Próximamente:
 1. Pulido: arranque más rápido, nombres de carpetas traducidos, primeras pruebas de la
@@ -242,7 +298,7 @@ textos generados por el backend en Rust pasan por `tr!` con sus entradas en
 
 ## Descargas y firma
 
-Las versiones se compilan a partir de este repositorio con GitHub Actions y se publican en la página de versiones (Releases), con la huella SHA-256 de cada archivo (`SHA256SUMS`). Los archivos de Windows están firmados: free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). Véase la [política de firma](CODE_SIGNING.md).
+Las versiones se compilan a partir de este repositorio con GitHub Actions y se publican en la página de versiones (Releases), con la huella SHA-256 de cada archivo (`SHA256SUMS`). Los archivos de Windows aún no están firmados. Cuando se acepte la solicitud a SignPath Foundation: free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). Véase la [política de firma](CODE_SIGNING.md).
 
 ## Licencia
 

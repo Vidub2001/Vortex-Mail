@@ -140,6 +140,14 @@ jobs:
         with:
           name: windows
           path: livraison
+      # L'artefact linux garde ses sous-dossiers (deb/, appimage/) : tout remettre à plat.
+      - name: Fichiers à plat
+        run: |
+          find livraison -mindepth 2 -type f -exec mv -t livraison {} +
+          find livraison -mindepth 1 -type d -empty -delete
+          # GitHub remplace les espaces des noms de fichiers par des points : faire de même avant SHA256SUMS.
+          for f in livraison/*\ *; do [ -e "$f" ] && mv -- "$f" "${f// /.}"; done
+          ls -l livraison
       - name: Empreintes SHA256SUMS (signées si la clé GPG est fournie)
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
