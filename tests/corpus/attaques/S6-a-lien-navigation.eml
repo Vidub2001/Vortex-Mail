@@ -1,0 +1,10 @@
+From: "Expéditeur de test" <attaquant@example.invalid>
+To: victime@example.invalid
+Subject: Message (lien)
+Date: Mon, 09 Nov 2026 10:00:00 +0100
+Message-ID: <4158765327924874637@corpus.vortexmail.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+<p><a href="https://phishing.example.invalid/page">Voir le document</a></p><p><a href="https://www.example.invalid/banque" target="_blank">https://www.banque.example.invalid</a></p>

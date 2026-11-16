@@ -1,0 +1,14 @@
+# Findings connus, acceptés temporairement (lot 0 de docs/plan-lots.md).
+#
+# Chaque entrée dit où se trouve le défaut, quel finding de la relecture du
+# 5 novembre 2026 il porte, et quel lot le corrige. `make audit` échoue dès
+# qu'un finding apparaît en plus ; quand un lot en corrige un, on baisse le
+# compteur (ou on retire l'entrée) dans le même commit.
+#
+# Clippy : relevé automatique dans security/clippy-baseline.json.
+# cargo-deny : bloc « acceptés temporairement » de deny.toml.
+
+# --- Semgrep ------------------------------------------------------------------
+# Plus aucune tolérance depuis le lot 8 : une section [[semgrep]] ici n'est plus
+# lue. Une exception se justifie dans le code, par un commentaire
+# « nosemgrep: vortex-regle -- raison » (voir docs/AUDIT.md).

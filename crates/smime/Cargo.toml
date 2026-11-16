@@ -1,0 +1,55 @@
+[package]
+name = "vortex-smime"
+version = "0.1.0"
+# Comme MailCraft, d'où vient l'essentiel du code (`let … && let …`).
+edition = "2024"
+rust-version = "1.100"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "S/MIME de Vortex Mail : vérification des signatures (RFC 8551, CMS RFC 5652, X.509 RFC 5280), d'après mailcraft-smime"
+
+# Règles de MailCraft pour son code repris (gardé proche de l'original pour en suivre les
+# corrections), et non celles du reste de l'espace de travail ; voir docs/plan-lots.md, lot D1.
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+too_many_arguments = "allow"
+type_complexity = "allow"
+
+[dependencies]
+mail-core = { path = "../mail-core" }
+cms = { version = "=0.3.0-rc.2", default-features = false }
+x509-cert = { version = "0.3", default-features = false }
+der = { version = "0.8", default-features = false, features = ["alloc", "oid"] }
+spki = { version = "0.8", default-features = false, features = ["alloc"] }
+const-oid = { version = "0.10", default-features = false, features = ["db"] }
+rsa = { version = "0.10", default-features = false, features = ["encoding", "pkcs1v15"] }
+# `pkcs8` : clé privée d'un signataire (lot D2).
+# `ecdh` : messages chiffrés pour une clé à courbe elliptique (lot G2b).
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "ecdh", "alloc", "pkcs8"] }
+p384 = { version = "0.14", default-features = false, features = ["ecdsa", "ecdh", "alloc", "pkcs8"] }
+sha2 = { version = "0.11", default-features = false, features = ["oid"] }
+
+# Lecture des fichiers PKCS #12 (.p12, .pfx) pour signer (lot D2) : PBES2 (AES) et les
+# chiffrements anciens (3DES, RC2) des exports de Windows et des autorités.
+p12-keystore = "0.3"
+# Lecture des messages chiffrés (lot D3a) : AES et 3DES en CBC, RSAES-OAEP sur SHA-1.
+aes = { version = "0.9", default-features = false }
+cbc = { version = "0.2", default-features = false, features = ["alloc", "block-padding"] }
+des = { version = "0.9", default-features = false }
+sha1 = { version = "0.11", default-features = false, features = ["oid"] }
+# Messages chiffrés authentifiés, AES-GCM (RFC 5083, RFC 5084 ; lot G2b).
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
+# Chiffrement des messages envoyés (lot D3b) : clé de contenu et vecteur d'initialisation tirés
+# de l'aléa du système ; RSA PKCS #1 v1.5 demande un générateur (celui de `rand`, alimenté par lui).
+getrandom = "0.4"
+rand = "0.10"
+
+[dev-dependencies]
+proptest = "1"
+# Certificats fabriqués par les tests (autorités et signataires example.org) et leurs signatures.
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring"] }
+ring = "0.17"

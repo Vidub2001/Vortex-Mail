@@ -1,0 +1,9 @@
+From: a@x.fr
+To: "Dupont, Marie" <marie@x.fr>, bob@y.com;
+ =?UTF-8?B?w4l0aWVubmU=?= <e@z.fr>
+Message-ID: <abc@x.fr>
+References: <1@x>
+	<2@x>
+Subject: s
+
+corps

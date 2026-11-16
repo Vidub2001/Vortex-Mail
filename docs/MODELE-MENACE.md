@@ -1,0 +1,209 @@
+# Modèle de menace
+
+> **Mis à jour :** 10 novembre 2026 (lot 9e de [plan-lots.md](plan-lots.md)) · **Relu :** relecture indépendante du 10 novembre 2026 (96 affirmations vérifiées), corrections des lots 8e-1 à 8e-3
+
+Ce que Vortex Mail protège, contre qui, et comment, avec le code qui le fait. Les contrôles automatiques sont décrits dans [AUDIT.md](AUDIT.md). Une affirmation de ce document que le code ne tient pas est un défaut : à corriger comme tel, et à ajouter au corpus (`tests/corpus/manifest.toml`).
+
+Le document sert aussi de point de départ pour les évolutions (lots B à E) : toute nouvelle entrée venue de l'extérieur doit trouver sa place dans une des sections « Adversaires » ci-dessous, avec ses plafonds, ses tests et sa cible de fuzzing.
+
+## Biens à protéger
+
+| Bien | Où il se trouve |
+| --- | --- |
+| La correspondance : messages, pièces jointes, brouillons | les serveurs ; le cache local (`cache.sqlite`, `src-tauri/src/cache.rs`) |
+| Les accès : mots de passe, jetons `OAuth2` (O365, Outlook.com, Google) | le trousseau du système (`secrets.rs`) ; en mode portable, le coffre chiffré `data/secrets.vault` ; les jetons d'accès en mémoire seulement |
+| Agendas et contacts | les serveurs (CalDAV, CardDAV, API d'Outlook.com) ; le cache local |
+| La configuration des comptes | `accounts.json` (sans aucun mot de passe) ; les sauvegardes chiffrées (`backup.rs`, `crypto.rs`) |
+| La vie privée : quand et si un message est lu, depuis quelle adresse IP | tout ce qui sort de l'ordinateur |
+| L'ordinateur lui-même | rien de ce qui arrive par un message ne doit s'y exécuter |
+
+## Adversaires, et ce que fait Vortex Mail
+
+### Un expéditeur malveillant
+
+Il écrit ce qu'il veut dans un message : MIME, HTML, en-têtes, pièces jointes, invitations, liens.
+
+- **Rien de ce qu'un message contient ne s'exécute.**
+    - Le corps s'affiche toujours dans une `iframe` sans script (`sandbox="allow-same-origin allow-popups"`, sans `allow-scripts`, `ReadingPane.tsx`), sous la CSP de l'`iframe` (`format.ts` : `default-src 'none'`, aucun script, images `data:` et `cid:` seulement, même après « Afficher les images » : les images acceptées sont intégrées par le backend, le reste (`srcset`, `poster`, adresse locale) reste bloqué, lot F5b) et celle de l'application (`tauri.conf.json`).
+    - **Mode « Original »** (par défaut), comme Thunderbird : le HTML d'origine est gardé pour la mise en page, sans aucune balise `<meta>`, `<link>` ni `<base>` (`sanitize::strip_refresh`, lecture qui tient compte des guillemets), et la pré-résolution DNS est coupée (`x-dns-prefetch-control`). Ce qui le neutralise est l'`iframe` sans script et la CSP, pas un nettoyeur.
+    - **Mode « HTML simplifié »**, citations (réponse, transfert) et brouillons rouverts : nettoyeur à liste blanche (`sanitize.rs`, crate `ammonia`) : balises et attributs autorisés seulement, liens `http`, `https` et `mailto`, images `data:` et `cid:` seulement, styles réduits à une liste de propriétés sans `url()`, `image-set()`, `image()`, `cross-fade()`, `element()` ni `position`.
+    - Côté interface, le HTML passe par `src/safe-html.ts`, analysé une seule fois dans un `<template>` inerte. Semgrep (`vortex-raw-html-sink`) refuse ailleurs `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `dangerouslySetInnerHTML`, `srcDoc`/`srcdoc`, `createContextualFragment`, `setHTMLUnsafe` et la commande `insertHTML`. Trois exceptions justifiées dans le code : le `srcDoc` de l'`iframe` (`ReadingPane.tsx`) et les deux insertions de la barre de mise en forme, qui n'insèrent que du HTML qu'elle construit (`FormatToolbar.tsx`).
+- **Une faille dans l'interface ne donne pas accès à tout.**
+    - Chaque fenêtre ne reçoit que ses commandes (`src-tauri/capabilities/`) : 18 pour la fenêtre de message, 11 pour la rédaction, aucune ne touche aux comptes ni aux sauvegardes. La liste exacte est vérifiée par `src-tauri/tests/permissions.rs` (`droits_exacts_des_fenetres_secondaires`).
+    - La rédaction ne reprend, ne remplace et ne supprime que des messages du dossier « Brouillons » (`router.rs`, `ensure_draft`) ; elle ne joint les pièces jointes d'un autre message que pour les messages transférés, déclarés par la fenêtre qui l'a ouverte (`windows.rs`, `may_reuse` ; `commands.rs`, `check_sources`). Une rédaction ne peut pas ouvrir d'autre fenêtre.
+    - `open_window` n'est accepté que depuis la fenêtre principale ou une fenêtre de message, et vérifie que le libellé correspond à la page chargée (`windows.rs`, testé dans `windows.rs`).
+    - Les fenêtres secondaires ont leur propre stockage du moteur web, séparé de celui de la fenêtre principale (`windows.rs`, dossier `webview-fenetres`) : elles ne peuvent ni lire ni modifier les règles de tri, les réglages ou les signatures. Les réglages dont elles ont besoin (thème, langue, signatures) et le brouillon de départ leur sont confiés à l'ouverture par le backend (`window_bootstrap`), et seulement s'ils viennent de la fenêtre principale ; une fenêtre de message transmet ceux qu'elle a reçus, jamais les siens.
+    - Elles écoutent les événements sans pouvoir en émettre (`core:event:allow-listen`, vérifié par `permissions.rs`) : la fenêtre principale n'est prévenue que par le backend (`notify_main`), qui refuse toute forme d'événement inconnue ou démesurée. La copie de secours d'un brouillon passe aussi par le backend, une par fenêtre de rédaction (`save_draft_backup`). L'envoi se fait en arrière-plan (lot E1) : son échec, qui rend le message à la fenêtre principale pour rouvrir la rédaction, n'est émis que par le backend (`SendFailed`, qui n'est pas un événement accepté d'une fenêtre, testé dans `windows.rs`) ; la copie de secours reste jusqu'à l'envoi réussi.
+- **Expéditeur usurpé** (`authres.rs`, lot G1) : un message refusé par DMARC, ou dont le serveur d'envoi n'est pas autorisé (SPF) sans signature DKIM valide, s'affiche sous un bandeau « Expéditeur non vérifié » ; seul le premier en-tête `Authentication-Results`, celui du serveur de réception, est lu (corpus G1).
+- **Pièces jointes** (`attachments.rs`) :
+    - noms nettoyés dès l'affichage (`mimeparse.rs`) comme à l'enregistrement : points et espaces finaux, `& ^ % !`, caractères de sens d'écriture (bidi) et invisibles (dont trait d'union conditionnel, remplissages coréens, sélecteurs de variante, étiquettes U+E0000), noms réservés de Windows ; l'extension est gardée quand le nom est raccourci ;
+    - liste blanche des types ouverts directement, choisis par leur extension (PDF, images, texte, documents bureautiques et OpenDocument ; les macros éventuelles d'un document restent à la charge de la suite bureautique) ; le reste passe par « Télécharger », vers le dossier Téléchargements, avec un message ;
+    - type réel vérifié par son contenu (crate `infer`) : un programme déguisé en PDF est reconnu ;
+    - ouverture sans interpréteur de commandes (crate `opener`, `ShellExecuteW` sous Windows) ; Semgrep refuse `Command::new` avec un interpréteur écrit en toutes lettres, chemin compris (`cmd`, `powershell`, `wscript`, `mshta`, `sh`, `bash`, `zsh`… : `vortex-shell-command`) ;
+    - Mark-of-the-Web (zone Internet) sous Windows ; fichiers temporaires en lecture seule, effacés au démarrage et à la fermeture, dans le dossier de cache de l'application ; en mode portable, dans un dossier au nom tiré au hasard à chaque session, et un lien symbolique posé à l'avance à la place du fichier est retiré, pas suivi.
+- **Liens :** jamais suivis dans le volet de lecture. Chaque clic devient une demande de fenêtre, toujours refusée par le backend (`windows.rs`, `on_new_window`) : `http(s)` part dans le navigateur, `mailto:` ouvre la rédaction (destinataires, copie, objet et texte repris, le texte comme texte brut ; jamais de copie cachée venue du lien, lot F3) ; les liens SVG (`xlink:href`) sont traités comme les autres, et tout autre élément qui porte une adresse (MathML) la perd (lot F5b). Un lien dont le texte affiche un autre site que l'adresse réelle déclenche l'alerte « Lien trompeur » (`src/links.ts`) : texte normalisé (NFKC, sans caractères invisibles ni point final), comparaison en Punycode.
+- **Images espionnes :** aucune image distante sans le clic « Afficher les images » ; elles sont alors téléchargées par le backend et intégrées au message (`images.rs` : 80 images, 5 Mo chacune, 25 Mo au total en comptant chaque copie d'une image répétée ; le téléchargement s'arrête après le lot de 8 qui dépasse). Les mails cités (réponse, transfert) n'en chargent aucune.
+- **Images intégrées (`cid:`) :** budget de 8 Mo par message qui compte chaque utilisation (`mimeparse.rs`) : une image répétée des milliers de fois n'est pas intégrée.
+- **Notifications :** expéditeur et objet passés à `notify-send` après `--`, texte échappé (`idle::notify_send_args`) ; Semgrep le vérifie (`vortex-notify-send-args`).
+- **Invitations et cartes de visite** (`pimfmt.rs`) : 20 000 rendez-vous par fichier, 5 000 dates exclues par rendez-vous, lignes d'1 Mo, 100 adresses par contact ; un rappel de plus d'un an est ignoré, calculs vérifiés ; une répétition qu'Outlook.com ne sait pas représenter est refusée au lieu d'être simplifiée (`o365::recurrence_from_rule`). À l'affichage, les valeurs `BYDAY` et `BYMONTHDAY` d'une répétition sont filtrées, dédoublonnées et limitées à 64 (`calendar.ts`).
+- **Signatures S/MIME** (lot D1, `crates/smime`, reprise de MailCraft ; `smime.rs`) : une signature n'est dite « vérifiée » que si elle est valide, que son certificat mène à une autorité de confiance **pour le courrier** (jamais une autorité des sites web), qu'il est fait pour signer du courrier, qu'il est au nom de l'unique adresse `From` et que la signature couvre tout le message ; sinon la barre dit pourquoi. Un message modifié après signature est signalé en rouge. MD5, SHA-1 et RSA de moins de 2048 bits ne valent pas une signature. Le nom et les adresses du certificat sont affichés comme du texte. La lecture est bornée (imbrication BER, nombre de certificats, de signataires et de chemins vers une autorité) et sans panique (tests par `proptest` sur des octets quelconques et des CMS abîmés). Un message signé « opaque » s'affiche par le contenu de sa signature, avec les mêmes protections qu'un autre corps.
+- **Clé de signature S/MIME** (lot D2, `smime.rs`, `crates/smime/src/sign.rs`) : importée d'un fichier PKCS #12 dont le mot de passe ne sert qu'à l'import ; la clé privée va dans le trousseau du système (ou le coffre du mode portable), jamais en clair dans un fichier ni dans le journal (`Debug` masqué). Seule la fenêtre principale importe, retire ou règle un certificat ; la rédaction ne sait que quels comptes peuvent signer (`permissions.rs`). Un certificat n'est accepté que pour l'adresse du compte, et chaque signature est relue avant l'envoi.
+- **Messages chiffrés reçus** (lot D3a, `crates/smime/src/decrypt.rs`, `Router::open`) : déchiffrés en mémoire à chaque ouverture ; le cache ne garde que le message chiffré, sans corps, aperçu ni pièce jointe en clair, et « Afficher les images » est refusé pour eux. La lecture du CMS chiffré est bornée comme celle d'une signature (BER rendu en DER, 64 destinataires, 64 Mo de contenu) ; le contenu déchiffré passe ensuite par les mêmes protections que tout autre corps.
+- **Messages chiffrés envoyés** (lot D3b, `crates/smime/src/encrypt.rs`) : clé de contenu et vecteur tirés de l'aléa du système, AES-256 CBC, transport RSA PKCS #1 v1.5 ; chaque message chiffré est relu avec la clé de l'expéditeur avant de partir. L'envoi chiffré est refusé tant qu'un destinataire n'a pas de certificat valide : jamais d'envoi en clair « faute de mieux ». Le brouillon d'un message à chiffrer est chiffré pour l'expéditeur dans « Brouillons », et n'a pas de copie de secours locale (lot D4) ; un destinataire au certificat d'autorité inconnue est signalé dans la rédaction.
+- **Plantages :** chaque lecteur de ce qui arrive de l'extérieur a sa cible de fuzzing (`fuzz/`, voir « Preuves ») ; le calcul de clé d'une sauvegarde n'est pas fuzzé (il ne dépend que du mot de passe), son enveloppe et son contenu le sont.
+
+### Un hébergeur d'images ou de liens
+
+Il voit les requêtes que l'utilisateur a acceptées, et peut répondre n'importe quoi, y compris une redirection.
+
+- Une image ne vise jamais le réseau local : bouclage, adresses privées, link-local, CGNAT, multicast ; en IPv6, adresses locales uniques, link-local, site-local, Teredo, NAT64 à usage local, préfixes de documentation et de rejet ; IPv4 embarquée comprise ; contrôle après résolution DNS, à chaque redirection et pour l'adresse réellement connectée (`http::check_image_url`, `http.rs`).
+- Adresses avec caractère de contrôle refusées partout ; 5 redirections au plus ; une image demandée en https ne repart pas en http ; réponse tronquée refusée.
+- Ce qu'il apprend : l'adresse IP et l'heure, une seule fois par message, et seulement après le clic.
+
+### Un serveur hostile ou compromis
+
+Serveur IMAP, SMTP, CalDAV ou CardDAV, ou API d'O365, d'Outlook.com ou de Google : il peut répondre n'importe quels octets, aussi longtemps qu'il veut.
+
+- **IMAP** (`crates/imap-lite`) : plafonds par réponse et par commande (`limits.rs` : ligne de 8 Mo, littéral de 256 Mo, 64 littéraux, 1 000 000 de réponses, imbrication de 64), taille de littéral vérifiée avant toute allocation ; une erreur de protocole abandonne la session ; dates bornées avant calcul (`date.rs`). Un nom de dossier renvoyé par le serveur repart entre guillemets sans CR, LF ni NUL (`client.rs`, `quote`), ou en littéral.
+- **SMTP** (`transport.rs`) : réponse de 4 Kio par ligne et 200 lignes au plus.
+- **WebDAV** (`dav.rs`, `xml.rs`) : réponse de 32 Mo au plus, imbrication XML gardée jusqu'à 256 niveaux ; entités décodées sans expansion, en temps linéaire.
+- **JSON** (`json.rs`, lecteur maison) : imbrication de 200 au plus ; nombres vérifiés avant conversion, selon la grammaire de la RFC 8259 et finis (lot F4). Une liste d'Outlook.com s'arrête à 200 pages et 256 Mo cumulés (`o365.rs`).
+- **Serveur de jetons** (`oauth.rs`) : réponse de 1 Mo au plus.
+- **Journal** (`diag.rs`, lot 10) : un message d'erreur du serveur n'atteint le terminal qu'après remplacement des caractères de contrôle et de mise en page (séquences d'échappement, retours à la ligne, inversion d'affichage), coupé à 2 000 caractères ; c'est le seul point d'écriture du journal (`print_stderr` refusé par Clippy).
+- **Données :** un dossier renuméroté par le serveur (`UIDVALIDITY`) est relu depuis zéro ; toute action par UID (déplacement, indicateurs, suppression, reprise hors connexion) vérifie d'abord que l'`UIDVALIDITY` du serveur est celle du cache, et les actions en attente du dossier renuméroté sont effacées (lot F1), et un compte qui change de serveur perd ses actions en attente au lieu de les rejouer sur le mauvais (`cache.rs`, `router.rs`) ; sans UIDPLUS, une suppression ne purge pas les messages qu'un autre logiciel avait seulement marqués (`client.rs`, `uid_expunge`). Un envoi refait après une coupure cherche d'abord le message par son `Message-ID` (`router.rs`) ; ce cas n'a pas encore de test automatique (Y8 au corpus). Un déplacement entre comptes dont la copie est arrivée sans réponse est repris de même, sans doublon, et un nouvel essai d'envoi depuis la même fenêtre garde son `Message-ID` (lot F1).
+- **Secrets :**
+    - les identifiants WebDAV ne partent que vers les sites du compte (`dav.rs`, `Scope`) : domaine de l'adresse e-mail et serveurs saisis ou connus, en HTTPS ; en clair, seulement vers un hôte saisi en `http://`. Une adresse (`href`) ou une redirection renvoyée par le serveur hors de ces sites est refusée avant la connexion, pour les lectures comme pour les écritures (`PUT`, `DELETE` ; lot F1). Le mot de passe ne part vers un site qu'après que celui-ci l'a demandé (réponse `401` avec `WWW-Authenticate: Basic`) ;
+    - le jeton d'Outlook.com ne part que vers l'adresse de l'API, même si une réponse (`@odata.nextLink`) en désigne une autre (`o365.rs`, `call_ex`) ;
+    - quand Outlook.com a coupé l'envoi SMTP d'une boîte (code 5.7.139), le message part par l'API (`o365::send_mime`), avec un jeton limité à l'envoi (`Mail.Send`, `oauth::send_token`), demandé seulement à ce moment-là et jamais gardé ;
+    - après une redirection, `Authorization`, `Cookie` et `Proxy-Authorization` ne sont plus envoyés si le schéma, l'hôte ou le port change ; https → http est refusé (`http::send`). Semgrep repère l'ancienne forme du défaut (`vortex-auth-redirect`), pas toutes ses variantes.
+
+### Un attaquant sur le réseau
+
+Il voit et modifie le trafic entre l'ordinateur et les serveurs.
+
+- TLS pour tout ce qui porte un mot de passe ou un message : SSL/TLS ou STARTTLS (`transport.rs`, `native-tls` : magasin de certificats du système), en TLS 1.2 au moins (RFC 8996, lot F1 : un seul connecteur, `tls_connector`). « Auto » choisit l'un ou l'autre selon le port ; un serveur qui n'annonce pas STARTTLS est une erreur, jamais un repli en clair.
+- La connexion sans chiffrement n'existe que si l'utilisateur la choisit explicitement ; un serveur qui annonce `LOGINDISABLED` ne reçoit le mot de passe ni par `LOGIN` ni par `AUTHENTICATE PLAIN`.
+- Connexion `OAuth2` (`oauth.rs`, `google.rs`) : code d'autorisation avec PKCE (S256) et `state` aléatoire ; le serveur d'écoute est sur `127.0.0.1` (adresse de retour `localhost` pour Outlook.com) ; aléa tiré de `getrandom`, erreur propagée au lieu d'un repli prévisible (sans aléa, le dossier temporaire du mode portable va dans le dossier `data` de la clé, lot F5). La connexion est refusée si le jeton d'identité manque, est destiné à une autre application (`aud`) ou désigne un autre compte que celui saisi (adresses Gmail comparées sans les points ni `googlemail.com`, lot F5).
+- Réponses HTTP tronquées refusées (`Content-Length`, bloc final `chunked`) : une coupure ne fait pas disparaître de contacts.
+
+### Un fichier importé hostile
+
+Une sauvegarde, un coffre portable, une invitation ou une carte de visite enregistrées sur le disque.
+
+- Sauvegardes et coffre chiffrés (`crypto.rs`, sans dépendance, vérifié par les vecteurs officiels) : clé dérivée par PBKDF2-HMAC-SHA256 (600 000 itérations depuis le lot F5, comme le recommande l'OWASP ; un coffre à 200 000 est réécrit au déverrouillage ; sel aléatoire), chiffrement `ChaCha20`, puis HMAC-SHA256 du tout ; un fichier modifié ou un mauvais mot de passe est refusé avant tout déchiffrement ; le nombre d'itérations lu est borné (10 000 000).
+- Une sauvegarde n'écrit dans le trousseau que les entrées des comptes qu'elle contient, avec leur libellé habituel, et ne restaure que les réglages `vortex.*` (`backup.rs`, `screen` ; `BackupSection.tsx`), qu'elle remplace ; l'état propre à l'installation (messages déjà examinés par les règles, rappels montrés, brouillons de secours) n'est ni exporté ni repris (lot F5b).
+- Import en ordre sûr (`backup.rs`) : secrets, puis données locales remplacées d'un seul bloc, puis configuration ; les comptes absents ne sont retirés qu'à la fin. Un mot de passe absent de la sauvegarde n'efface pas celui déjà enregistré. Tests : `import_interrompu_garde_les_contacts_locaux` (`cache.rs`) et `import_sans_mot_de_passe_garde_celui_du_trousseau` (`secrets.rs`), C2 et C4 au corpus (lot E5).
+- Coffre portable écrit jusqu'au disque, dans un fichier temporaire renommé ensuite. La copie de secours n'est relue que si le coffre est abîmé, jamais quand il refuse le mot de passe, et elle est réécrite après un changement de mot de passe (`secrets.rs`) : l'ancien mot de passe n'ouvre plus rien.
+
+### Les autres programmes et utilisateurs de l'ordinateur
+
+- Mots de passe et jetons de renouvellement dans le trousseau du système (Secret Service sous Linux, gestionnaire d'identifiants sous Windows), jamais dans `accounts.json` ni dans les journaux ; le jeton d'accès reste en mémoire.
+- Fichiers temporaires des pièces jointes effacés à la fermeture ; en mode portable, dossier au nom imprévisible, sans suivre de lien symbolique (voir plus haut).
+- Une déconnexion est définitive : un renouvellement de jeton qui se termine après ne réécrit rien (`auth.rs`).
+
+### Une dépendance compromise ou vulnérable
+
+- `cargo deny` (avis de sécurité, licences, provenance, doublons) et `npm audit` à chaque `make audit` ; `Cargo.lock` et `package-lock.json` versionnés.
+- Peu de dépendances sur les chemins sensibles : IMAP (`imap-lite`), JSON, XML, iCalendar, vCard, SHA-256, HMAC, PBKDF2 et `ChaCha20` sont écrits dans le dépôt, sans dépendance.
+- Crates abandonnées acceptées, avec leur raison (`deny.toml`) : `zvariant`, `zbus_names` et `zvariant_derive`, tirées par `zbus` (trousseau Secret Service, notifications), donc sur le chemin des secrets sous Linux. À suivre.
+- SQLite embarqué tenu à jour (`src-tauri/tests/sqlite_version.rs` échoue sur une version vulnérable, lancé par `make audit`).
+
+## Argumentaire
+
+**Affirmation.** Vortex Mail garde la correspondance et les accès de l'utilisateur confidentiels et intacts face aux adversaires ci-dessus : rien de ce qui arrive par un message ne s'exécute ni ne sort tout seul, les accès ne quittent pas le trousseau du système (ou le coffre chiffré) et ne partent que vers les serveurs du compte, et les entrées hostiles connues ne font ni planter l'application ni corrompre les données, dans les limites décrites à la fin.
+
+**Frontières de confiance.** Tout ce qui vient de l'extérieur est hostile et vérifié à l'endroit où il entre :
+
+| Entrée | Vérifiée par |
+| --- | --- |
+| Messages et pièces jointes | `mimeparse.rs` (crate `mail-parser` 1.0, plafonds réglés, panique rattrapée), `sanitize.rs`, `attachments.rs` ; `iframe` sans script et CSP pour le mode Original |
+| Invitations et cartes de visite | `pimfmt.rs`, `o365.rs`, `calendar.ts` |
+| Serveurs IMAP et SMTP | `crates/imap-lite`, `transport.rs` |
+| Serveurs WebDAV, API d'O365, d'Outlook.com et de Google | `http.rs`, `dav.rs` (`Scope`), `xml.rs`, `json.rs`, `oauth.rs`, `google.rs`, `o365.rs` |
+| Le web, pour les images demandées | `images.rs`, `http::check_image_url` (seule sortie vers un hôte que l'utilisateur n'a pas configuré) |
+| Sauvegardes et coffre | `crypto.rs`, `backup.rs`, `secrets.rs` |
+| L'interface (WebView) vers le backend | droits par fenêtre (`src-tauri/capabilities/`), contrôles des commandes (`ensure_draft`, `check_sources`, `open_window`), CSP |
+
+**Principes appliqués.**
+
+| Principe | Comment |
+| --- | --- |
+| Moindre privilège | Chaque fenêtre ne reçoit que ses commandes, et la rédaction n'agit que sur ses brouillons et les pièces jointes qu'on lui a confiées ; les identifiants ne partent que vers les sites du compte |
+| Refus par défaut | Images distantes bloquées ; liste blanche des pièces jointes ouvertes, des balises, des styles et des schémas de liens ; pas de repli en clair quand STARTTLS manque |
+| Peu de points de passage | Un nettoyeur HTML pour le mode simplifié, la citation et les brouillons ; une seule fonction d'ouverture des pièces jointes et des liens ; une seule sortie pour les images ; trois insertions de HTML dans l'interface hors de `safe-html.ts`, chacune justifiée |
+| Validation des entrées | Tailles, nombres et profondeurs plafonnés ; calculs vérifiés (`checked_*`, `try_from`) ; découpage des chaînes aux limites de caractères |
+| Échec sans perte | Écritures dans un fichier temporaire puis renommage ; journal des déplacements entre comptes repris après une coupure ; suppressions en dernier à l'import ; après une panique, un verrou n'est repris que sur des données remplacées d'un bloc, et une connexion IMAP est fermée puis rouverte (lot 10). Règle : sous ces verrous, aucune modification en plusieurs étapes hors transaction |
+
+**Faiblesses courantes contrées.**
+
+| Faiblesse | Contrée par |
+| --- | --- |
+| Sécurité mémoire (CWE-119, CWE-416, CWE-787) | Rust, aucun bloc `unsafe` dans le code de Vortex Mail (`mail-parser` 1.0 en contient, audité par ses auteurs, pour ses noyaux SIMD et sa conversion UTF-8 ; fuzzé avec AddressSanitizer) |
+| Plantages et épuisement (CWE-248, CWE-400, CWE-674) | Plafonds de lecture sur chaque entrée réseau, budgets qui comptent chaque copie (images), imbrications bornées, calculs vérifiés ; fuzzing des lecteurs principaux |
+| Script et contenu actif (CWE-79) | `iframe` sans script et CSP pour tout affichage ; nettoyeur à liste blanche pour le mode simplifié et les citations ; droits par fenêtre |
+| Injection de commandes (CWE-78, CWE-88) | Aucun interpréteur de commandes ; `--` avant les arguments de `notify-send` ; règles Semgrep |
+| Injection dans les journaux (CWE-117, CWE-150) | Un seul point d'écriture (`diag::report`), qui neutralise caractères de contrôle, séquences d'échappement et inversions d'affichage |
+| Injection dans les protocoles (CWE-93) | Caractères de contrôle refusés dans les adresses ; arguments IMAP entre guillemets sans CR ni LF, ou en littéral (`client.rs`, `quote`) ; `In-Reply-To` et `References` repris sans caractère de contrôle (`compose.rs`) |
+| Requêtes vers le réseau interne depuis un message (CWE-918) | Images sur demande seulement, adresses publiques seulement, contrôle refait à chaque redirection et connexion |
+| Transmission en clair (CWE-319) | TLS 1.2 au moins, TLS ou STARTTLS par défaut, aucun repli silencieux ; images sans passage de https à http |
+| Fuite d'identifiants (CWE-200, CWE-522) | Identifiants WebDAV et jeton d'Outlook.com limités aux sites du compte ; en-têtes d'authentification retirés au changement d'hôte ; https → http refusé |
+| Stockage des secrets (CWE-256, CWE-312) | Trousseau du système, ou coffre chiffré et authentifié dont la copie de secours suit le mot de passe ; aucun secret dans `accounts.json` |
+| Noms de fichiers trompeurs ou dangereux (CWE-22, CWE-451) | `safe_file_name`, à l'affichage comme à l'enregistrement : bidi, invisibles, points finaux, noms réservés ; type vérifié par le contenu |
+| Aléa prévisible (CWE-338) | `getrandom` pour les clés, l'`OAuth2`, le dossier temporaire portable, les `Message-ID` et les UID des contacts et rendez-vous |
+
+**Preuves.**
+
+- Tests, tous lancés par `make audit` (`cargo test --workspace`, puis le corpus et les tests de l'interface) : 140 tests unitaires de l'application, 16 tests d'intégration (`corpus.rs`, `permissions.rs`, `sqlite_version.rs`), 51 d'`imap-lite` (dont un faux serveur IMAP), 39 de `mail-core`, 44 de `smime` (dont deux `proptest`), 47 de l'interface.
+- Corpus de non-régression (`tests/corpus/`) : 26 mails piégés et 40 scénarios de perte de données, chacun avec son comportement attendu. `src-tauri/tests/corpus.rs` vérifie 24 des mails, `tests/frontend` les deux autres (S6-a, F7) ; chaque entrée marquée `corrige` nomme le test qui la vérifie, et `make audit` refuse une entrée sans test existant (lot 9b).
+- Fuzzing : dix-huit cibles `cargo-fuzz` (`fuzz/`, mode d'emploi dans `fuzz/README.md`) : MIME, HTML, iCalendar, vCard, XML WebDAV, JSON, dates, réponses et session IMAP complète face à un serveur qui répond n'importe quoi ; depuis le lot 9a, réponses HTTP et SMTP, sauvegardes et coffre, retour de la connexion `OAuth2`, en-têtes repris pour répondre ; depuis le lot G2, S/MIME : messages signés vérifiés, messages chiffrés déchiffrés, certificats (8 h sans plantage pour ces cinq cibles, nuit du 11 au 12 novembre 2026, de 553 millions à 1,25 milliard d'entrées). Chaque entrée qui a fait planter une cible est gardée dans `tests/corpus/fuzz/<cible>/`, rejouée par `corpus.rs` et à chaque fuzzing. Huit cibles ont tourné 8 h chacune sans plantage (nuit du 10 novembre 2026, de 40 millions à 3,9 milliards d'entrées selon la cible). La cible `mime` a trouvé deux paniques de `mail-parser` sur des `multipart` abîmés : la première, en 0.9.4, est corrigée par la 0.11.9 (lot 8f) ; la seconde, « Invalid part ID », existe encore en 0.11.9 et est rattrapée par `mimeparse.rs` (lot 8h). La cible a ensuite toléré les paniques de la crate et tenu 8 h sans autre plantage (45 millions d'entrées, 11 novembre 2026). La version 1.0 ne panique plus sur ces deux mails : depuis le lot 9e, la cible s'arrête de nouveau sur toute panique, crate comprise, et elle a tenu 8 h sans plantage avec la version 1.0 (38,2 millions d'entrées, 12 novembre 2026).
+- Analyse statique bloquante : mise en forme (`cargo fmt --check`), Clippy en mode pedantic, avec les règles du projet (lot 10, d'après BeautifulRust : paniques annoncées, pas de `as`, `Debug` et documentation sur tout type public, journal unique), sans aucune alerte tolérée, chaque exception écrite `#[expect(…, reason)]` dans le code ; six règles Semgrep tirées des relectures, chaque exception justifiée dans le code et vérifiée (`semgrep_gate.py`) ; cargo-deny ; npm audit.
+- Relectures indépendantes du 5 et du 10 novembre 2026, relectures du code Rust des lots 10 et B, et relecture complète du 12 novembre 2026 (52 constats, lots correctifs F1 à F5) ; rapports dans le projet, pas dans le dépôt ; chaque constat a son lot correctif dans `plan-lots.md`.
+
+## Hors périmètre et limites connues
+
+- **Un programme malveillant qui tourne sous le compte de l'utilisateur.** Il peut lire le cache, `accounts.json` et, en général, le trousseau. Vortex Mail ne se défend pas contre le compte de son propre utilisateur.
+- **Cache local chiffré par une clé du trousseau** (lot G4). `cache.sqlite` est chiffré par SQLCipher (AES-256, journal compris, fichiers temporaires en mémoire) avec une clé aléatoire de 32 octets gardée dans le trousseau du système : un disque, une copie du profil ou une sauvegarde de fichiers volés ne livrent pas les messages. Un programme qui tourne sous le compte de l'utilisateur lit le trousseau, donc aussi le cache. Les copies de secours des brouillons y sont aussi, au lieu du fichier `brouillons-secours.json` et du stockage de la fenêtre. Un cache d'avant le lot G4 est chiffré au premier démarrage, puis effacé, et les anciennes copies de secours sont reprises puis effacées ; sur un SSD, leurs anciens blocs, comme le stockage de la fenêtre avant son compactage, peuvent rester lisibles un temps : le chiffrement du disque (LUKS, BitLocker) reste conseillé. Sans trousseau utilisable, le cache reste en clair, et le journal le dit. Une clé perdue (trousseau réinitialisé) rend le cache illisible : il est mis de côté (`cache.sqlite-illisible-…`) et le courrier se resynchronise ; agendas et contacts « Sur cet ordinateur » ne reviennent qu'avec une sauvegarde. En mode portable, la clé est gardée dans le coffre (lot G4b) : le cache sur la clé USB ne s'ouvre qu'avec le mot de passe maître. Le SQLite de SQLCipher (3.53.4, imposé par `libsqlite3-sys` 0.39.1) précède la correction du fichier `-wal` piégé (RUSTSEC-2026-0459, lot 0b) : accepté temporairement, puisqu'il faudrait des fichiers chiffrés avec la clé du trousseau (ou du coffre en mode portable) ; le garde-fou `tests/sqlite_version.rs` signale le jour où une version corrigée est disponible.
+- **Stockage du moteur web non chiffré.** Réglages, règles de tri et signatures sont dans le `localStorage` de la fenêtre principale, en clair (sur la clé USB en mode portable) ; les copies de secours des brouillons n'y sont plus depuis le lot G4 (cache chiffré). Sous macOS, le moteur web ne permet pas de séparer le stockage des fenêtres secondaires (le lot 9c n'y protège que les événements).
+- **Mode Original :** seuls l'`iframe` sans script et la CSP séparent le HTML d'origine de l'application ; l'`iframe` garde `allow-same-origin`, nécessaire à la réécriture des liens.
+- **S/MIME partiel, pas d'OpenPGP.** Les signatures S/MIME reçues sont vérifiées (lot D1) et les messages envoyés peuvent être signés (lot D2), les messages chiffrés reçus se lisent (lot D3a) et un message peut partir chiffré (lot D3b). Les messages chiffrés se lisent avec une clé RSA ou à courbe elliptique (P-256, P-384, ECDH ; lot G2b), en AES-CBC, 3DES ou AES-GCM ; un message part chiffré en AES-256-CBC vers des certificats RSA, P-256 ou P-384 (ECDH avec une clé éphémère par message). Un message chiffré laisse lisibles son objet, son expéditeur et ses destinataires (en-têtes), et la liste des destinataires du chiffrement révèle les copies cachées à qui sait lire le CMS. Un certificat de correspondant gardé sans autorité de confiance (autorité inconnue) peut être celui d'un imposteur qui a signé un message à ce nom : la liste des correspondants le signale, il n'est jamais préféré à un certificat d'autorité de confiance. La clé de signature, gardée par le trousseau du système, est lisible par un programme qui tourne sous le compte de l'utilisateur, comme les mots de passe ; elle n'est pas dans les sauvegardes de Vortex Mail (à réimporter après une restauration). La révocation est vérifiée par les listes de certificats révoqués (CRL) des autorités, téléchargées en arrière-plan et consultées sans réseau (lot G2c) : seule l'autorité apprend qu'on utilise ses certificats, jamais lesquels ; OCSP n'est pas utilisé ; seul le certificat du signataire est contrôlé (pas les autorités intermédiaires) ; un résultat gardé dans le cache n'est mis à jour que par « Vérifier de nouveau » ; une autorité sans liste laisse la révocation « non vérifiée ». Sous Ubuntu, Debian et macOS, aucune autorité de confiance pour le courrier n'est lue sur le système : une signature n'y est « vérifiée » qu'avec une autorité déposée par l'utilisateur dans `smime/autorites`. Le résultat est calculé au téléchargement : un certificat expiré depuis n'est vu qu'en cliquant « Vérifier de nouveau ». La crate `smime` est fuzzée depuis le lot G2 (cibles `smime_verify`, `smime_decrypt`, `smime_cert`) ; l'import d'un fichier `.p12`, choisi par l'utilisateur, ne l'est pas.
+- **Expéditeur authentifié par le serveur de réception seulement** (lot G1). Vortex Mail lit les résultats SPF, DKIM et DMARC que le serveur de réception note en tête du message (`Authentication-Results`), sans les vérifier lui-même. Un serveur qui n'en note pas laisse l'expéditeur sans contrôle ; un expéditeur qui ajoute un faux en-tête ne peut que provoquer un avertissement à tort, jamais en cacher un (seul le premier en-tête compte, et un échec l'emporte). Un expéditeur qui écrit depuis un domaine ressemblant (`banque-exemple.example`), authentifié pour ce domaine, n'est pas signalé.
+- **Mot de passe envoyé aux serveurs WebDAV devinés** depuis le domaine de l'adresse, quand aucune adresse n'est donnée : il ne part que vers ce domaine, en HTTPS, et seulement à un site qui le demande (lot F1). Un site web du domaine qui demande un mot de passe `Basic` le reçoit donc ; depuis le lot G3, les serveurs annoncés par le DNS (`SRV` `_caldavs._tcp`, `_carddavs._tcp`, RFC 6764) sont essayés d'abord, en HTTPS et seulement dans le même domaine que l'adresse (le DNS n'est pas authentifié) ; la question part au résolveur du système (`/etc/resolv.conf` sous Linux et macOS, `DnsQuery_W` sous Windows, lot G3b).
+- **Images affichées :** une fois le clic fait, l'hébergeur apprend l'adresse IP et l'heure.
+- **Connexion sans chiffrement** possible sur choix explicite de l'utilisateur ; le mot de passe passe alors en clair. Une sauvegarde importée peut contenir un tel compte.
+- **Contrôles qui restent partiels :** le corpus vérifie qu'un test nommé existe, pas qu'il vérifie bien l'attendu (c'est le rôle de la relecture) ; les règles Semgrep repèrent des formes écrites en toutes lettres (un interpréteur passé par une variable leur échappe).
+- **Pas d'intégration continue ni de version signée.** Les contrôles tournent sur le poste du développeur (`make audit`, crochet Semgrep avant chaque commit) ; les installateurs ne sont pas signés.
+- **Lecteur MIME externe.** `mail-parser` 1.0 est réglé par `mimeparse.rs` : 32 niveaux d'imbrication, 1 000 parties, 3 messages encodés imbriqués (au-delà, le reste du mail reste dans une dernière partie). Il est fuzzé (`fuzz/fuzz_targets/mime.rs`). Une panique de la crate serait rattrapée par `mimeparse.rs` (message affiché « illisible » ; seul `catch_unwind` du code, écart voulu aux règles du lot 10), ce qui suppose une compilation qui déroule la pile en cas de panique (le réglage par défaut ; `make audit` refuse `panic = "abort"` depuis le lot 10e).
+
+## Historique
+
+| Date | Résumé |
+| --- | --- |
+| 2026-11-10 | Première version (lot 8d) : biens, adversaires, défenses avec leurs fichiers, argumentaire, limites connues |
+| 2026-11-16 | Lot E8b : agendas (`.ics`) et carnets (`.vcf`) importés lus par les lecteurs déjà fuzzés (`ical`, `vcard`, étendus à `component_blocks`), 20 Mo au plus ; export dans Téléchargements |
+| 2026-11-16 | Lot E8a : messages importés (`.eml`, `.mbox`) lus par `mbox::split`, cible de fuzzing `mbox`, fichier plafonné à 200 Mo, déposés tels quels sur le serveur ; export dans Téléchargements, fichier incomplet retiré si l'export échoue |
+| 2026-11-15 | Lot H1 : réponse aux invitations (iMIP `REPLY`) limitée à la ligne du compte, sans les autres invités, envoyée seulement si l'utilisateur le choisit |
+| 2026-11-14 | Lot G4b : cache chiffré aussi en mode portable, clé dans le coffre, cache ouvert au déverrouillage par le mot de passe maître |
+| 2026-11-14 | Lot G4 : cache local chiffré par SQLCipher, clé aléatoire dans le trousseau, ancien cache chiffré au premier démarrage, copies de secours des brouillons dans le cache (mode portable : lot G4b) |
+| 2026-11-14 | Lot G3 : serveurs d'agenda et de contacts annoncés par le DNS (SRV, TXT) essayés avant de deviner, dans le même domaine seulement ; sous Windows, par le résolveur du système (`DnsQuery_W`) |
+| 2026-11-14 | Lot G2 : fuzzing de la crate `smime`, messages chiffrés ECDH et AES-GCM, envoi chiffré vers des certificats à courbe elliptique, révocation par les listes CRL |
+| 2026-11-14 | Lot G1 : résultats SPF, DKIM et DMARC du serveur de réception lus, expéditeur usurpé signalé |
+| 2026-11-14 | Lot E5 : tests des imports de sauvegarde (C2, C4) et de l'envoi rejoué (Y8) ; une panique pendant l'envoi rend le message à la rédaction |
+| 2026-11-14 | Lot E1 : envoi en arrière-plan, échec émis par le backend seul, copie de secours gardée jusqu'à l'envoi réussi |
+| 2026-11-14 | Lot D4 : brouillons d'un message à chiffrer chiffrés, sans copie de secours en clair ; certificat d'autorité inconnue signalé à la rédaction |
+| 2026-11-13 | Lot D3b : messages envoyés chiffrés, certificats des correspondants gardés sur leurs messages signés, jamais d'envoi en clair à la place |
+| 2026-11-13 | Lot D3a : messages chiffrés reçus lus en mémoire, rien en clair dans le cache, images refusées pour eux |
+| 2026-11-13 | Lot D2 : messages envoyés signés en S/MIME, clé dans le trousseau, certificat limité à l'adresse du compte, signature relue avant l'envoi |
+| 2026-11-13 | Lot D1 : signatures S/MIME reçues vérifiées (autorités pour le courrier seulement, adresse de l'expéditeur, message entier), message modifié signalé, limites (révocation, Ubuntu, Debian et macOS) écrites |
+| 2026-11-13 | Lot F5b (relecture complète) : images distantes toujours bloquées par la CSP de l'`iframe`, adresses retirées des éléments autres que les liens, sauvegarde sans l'état des règles |
+| 2026-11-13 | Lot F5a (relecture complète) : PBKDF2 à 600 000 itérations, jeton d'identité exigé et vérifié à la connexion `OAuth2`, alertes du serveur IMAP montrées, journal sans adresse |
+| 2026-11-13 | Lot F3 (relecture complète) : objet d'un message sans retour à la ligne possible dans les en-têtes, liens `mailto:` sans copie cachée imposée, `EHLO` conforme |
+| 2026-11-13 | Lot F2 (relecture complète) : invitations selon leur méthode (une annulation n'est plus ajoutée comme un rendez-vous), écritures Outlook.com limitées aux champs changés et protégées par `If-Match`, élément relu après un `PUT` sans version |
+| 2026-11-13 | Lot F1 (relecture complète) : `UIDVALIDITY` vérifiée avant toute action par UID, écritures WebDAV dans les sites du compte, mot de passe envoyé seulement sur demande, TLS 1.2 au moins, envois et déplacements sans doublon, copie « Envoyés » mise en attente, import de sauvegarde plus strict |
+| 2026-11-12 | Lot 10 : règles Clippy du projet (BeautifulRust), journal nettoyé (`diag.rs`), règle des verrous repris après une panique, exception `catch_unwind` justifiée |
+| 2026-11-12 | Lot 9e : `mail-parser` 1.0, plafonds réglés, cible `mime` de nouveau stricte |
+| 2026-11-12 | Lot 9c : stockage propre aux fenêtres secondaires, événements relayés et vérifiés par le backend |
+| 2026-11-11 | Lot 9b : chaque entrée « corrigée » du corpus nomme son test, vérifié par `make audit` |
+| 2026-11-11 | Lot 9a : cinq cibles de fuzzing de plus (HTTP, SMTP, sauvegarde, `OAuth2`, en-têtes) |
+| 2026-11-11 | Lot 8h : seconde panique de `mail-parser` (0.11.9) trouvée par le fuzzing, rattrapée ; bilan de la nuit de fuzzing |
+| 2026-11-10 | Lot 8f : panique de `mail-parser` trouvée par le fuzzing, crate passée en 0.11.9, panique rattrapée |
+| 2026-11-10 | Relecture indépendante (57 affirmations tenues, 30 partielles, 8 fausses) et corrections des lots 8e-1 à 8e-3 : texte aligné sur le code, mode Original comme Thunderbird, fenêtres secondaires restreintes, nouvelles limites connues |

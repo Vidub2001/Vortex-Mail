@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Crochet git de Vortex Mail (installé par « make hooks ») : Semgrep avant
+# chaque commit qui touche du code. « git commit --no-verify » pour passer outre.
+set -euo pipefail
+if git diff --cached --name-only --diff-filter=ACMR | grep -qE '\.(rs|ts|tsx|js|mjs)$|^\.semgrep/'; then
+    echo "Semgrep (crochet pre-commit)…"
+    make --no-print-directory semgrep
+fi

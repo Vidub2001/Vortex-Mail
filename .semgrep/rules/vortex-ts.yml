@@ -1,0 +1,55 @@
+# Règles Semgrep maison — frontend TypeScript / React.
+# Tests : make semgrep-test (fichier vortex-ts.tsx à côté).
+rules:
+  - id: vortex-raw-html-sink
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      Injection de HTML brut dans le DOM. La fenêtre a accès aux commandes de
+      l'application : un script venu d'un mail y devient une prise de contrôle
+      (relecture S2, S3, S4). Passer par le module HTML autorisé.
+    metadata:
+      relecture: S2 S3 S4
+      lot: 4
+    paths:
+      exclude:
+        # Seul module autorisé à manipuler du HTML (créé au lot 4).
+        - src/safe-html.ts
+    pattern-either:
+      - pattern: $X.innerHTML = $Y
+      - pattern: $X.innerHTML += $Y
+      - pattern: $X.outerHTML = $Y
+      - pattern: $X.outerHTML += $Y
+      - pattern: $X.insertAdjacentHTML(...)
+      - pattern: document.write(...)
+      - pattern: document.writeln(...)
+      # Document d'une autre fenêtre ou d'une iframe (relecture complète n° 48).
+      # (chaînage optionnel `?.` compris, que les motifs ne voient pas).
+      - pattern-regex: '\b(document|contentDocument)\s*\??\.\s*write(ln)?\s*\('
+      - pattern: $X.setAttribute("srcdoc", ...)
+      - pattern: $X.createContextualFragment(...)
+      - pattern: $X.setHTMLUnsafe(...)
+      - pattern: $X.srcdoc = $Y
+      - pattern-regex: '\bdangerouslySetInnerHTML\b'
+      # Attribut React de l'iframe et commande d'édition « insertHTML ».
+      - pattern-regex: '\bsrcDoc\s*='
+      - pattern-regex: '["'']insertHTML["'']'
+
+  - id: vortex-html-reparse
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      HTML nettoyé dans un DOMParser puis reparsé ailleurs : les deux analyses
+      peuvent diverger (mXSS, relecture S3). Nettoyer et injecter un fragment
+      sans repasser par une chaîne.
+    metadata:
+      relecture: S3
+      lot: 4
+    paths:
+      exclude:
+        - src/safe-html.ts
+    pattern-either:
+      - pattern: new DOMParser().parseFromString(...)
+      # Même chose en deux instructions (relecture complète n° 48) : seul
+      # DOMParser a cette méthode.
+      - pattern: $P.parseFromString(...)

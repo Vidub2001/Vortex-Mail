@@ -1,0 +1,7 @@
+# Réglages de Clippy (lot 10, d'après BeautifulRust : lints/clippy.toml).
+# Les règles elles-mêmes sont dans Cargo.toml ([workspace.lints]).
+# Dans les tests, unwrap(), expect(), print!() et dbg!() restent admis.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-print-in-tests = true
+allow-dbg-in-tests = true

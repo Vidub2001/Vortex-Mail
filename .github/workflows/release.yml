@@ -1,0 +1,172 @@
+# Versions publiées de Vortex Mail (lot G5b). Mode d'emploi : docs/CI.md, § 6.
+#
+# Sur étiquette v* (ou à la main, sans publication) :
+# - versions identiques partout (étiquette, tauri.conf.json, Cargo.toml, package.json) ;
+# - installateurs Linux (deb, AppImage) et Windows (NSIS, version portable) ;
+# - Windows signé par SignPath (certificat de la SignPath Foundation) si le
+#   projet SignPath est configuré ; chaque signature est approuvée à la main ;
+# - empreintes SHA256SUMS, signées par GPG si la clé est fournie ;
+# - version GitHub créée en brouillon : relue, puis publiée à la main.
+#
+# L'audit de chaque envoi reste fait par Jenkins (Jenkinsfile).
+name: Version publiée
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        name: Même version partout
+        shell: bash
+        run: |
+          app=$(jq -r .version src-tauri/tauri.conf.json)
+          npm=$(jq -r .version package.json)
+          crate=$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)
+          echo "tauri.conf.json $app, package.json $npm, Cargo.toml $crate"
+          if [ "$app" != "$npm" ] || [ "$app" != "$crate" ]; then
+            echo "::error::Versions différentes : tauri.conf.json $app, package.json $npm, Cargo.toml $crate"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$app" ]; then
+            echo "::error::L'étiquette $GITHUB_REF_NAME ne correspond pas à la version $app"
+            exit 1
+          fi
+          echo "version=$app" >> "$GITHUB_OUTPUT"
+
+  linux:
+    name: Linux
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Bibliothèques du système
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential file libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libxdo-dev
+      - name: Rust (version de rust-toolchain.toml)
+        run: rustup toolchain install
+      - run: npm ci
+      - run: npm run tauri build -- --bundles deb,appimage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    needs: version
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # Perl (Strawberry, présent sur l'image) compile OpenSSL pour SQLCipher (lot G4).
+      - name: Rust (version de rust-toolchain.toml)
+        run: rustup toolchain install
+      - run: npm ci
+      - run: npm run tauri build -- --bundles nsis
+      - name: Version portable
+        shell: pwsh
+        run: .\scripts\portable.ps1
+      - name: Fichiers à signer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force a-signer | Out-Null
+          Copy-Item target\release\bundle\nsis\*.exe a-signer\
+          Copy-Item target\VortexMail-portable-*.zip a-signer\
+      - id: unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-non-signe
+          path: a-signer/
+          if-no-files-found: error
+      # Sans projet SignPath configuré (variables du dépôt), les fichiers partent non signés.
+      - name: Signature par SignPath (approbation à la main)
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signe
+      - name: Fichiers livrés
+        shell: pwsh
+        run: |
+          if (Test-Path signe) { Move-Item signe livre } else { Move-Item a-signer livre }
+          Get-ChildItem livre
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: livre/
+          if-no-files-found: error
+
+  publication:
+    name: Publication (brouillon)
+    needs: [version, linux, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux
+          path: livraison
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: livraison
+      - name: Empreintes SHA256SUMS (signées si la clé GPG est fournie)
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          cd livraison
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+          if [ -n "$GPG_PRIVATE_KEY" ]; then
+            export GNUPGHOME="$(mktemp -d)"
+            printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --import
+            gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --armor --detach-sign SHA256SUMS
+            gpg --batch --verify SHA256SUMS.asc SHA256SUMS
+            rm -rf "$GNUPGHOME"
+          fi
+      - name: Version GitHub en brouillon
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
+            --title "Vortex Mail $VERSION" \
+            --notes "Vérifier les fichiers : \`sha256sum -c SHA256SUMS\` (et \`gpg --verify SHA256SUMS.asc SHA256SUMS\` si la signature est jointe)." \
+            livraison/*
+      - if: ${{ github.ref_type != 'tag' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: livraison
+          path: livraison/

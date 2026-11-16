@@ -1,0 +1,5 @@
+# Mise en forme du code Rust (lot 10e) : `cargo fmt`, vérifiée par make audit
+# (`make fmt`). Réglages stables seulement, proches du style d'avant le lot 10 :
+# lignes de 140 colonnes, et les petites expressions gardées sur une ligne.
+max_width = 140
+use_small_heuristics = "Max"

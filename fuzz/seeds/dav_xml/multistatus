@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:"><d:response><d:href>/a.vcf</d:href><d:propstat><d:prop><d:getetag>"1"</d:getetag><c:address-data><![CDATA[BEGIN:VCARD
+END:VCARD]]></c:address-data><d:displayname>L&apos;a &#x41;&#65;</d:displayname><d:resourcetype/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response><!-- c --></d:multistatus>

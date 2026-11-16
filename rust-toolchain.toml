@@ -1,0 +1,8 @@
+# Version de Rust du projet : la même sous Linux, sous Windows et dans la CI (G5),
+# pour que clippy signale partout la même chose. rustup l'installe d'elle-même au
+# premier appel de cargo dans le dépôt. La changer : un lot à part, avec make audit
+# sous Linux et clippy sous Windows. Le fuzzing garde nightly (cargo +nightly fuzz).
+[toolchain]
+channel = "1.100.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

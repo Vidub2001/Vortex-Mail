@@ -1,0 +1,166 @@
+// Parcours principaux de l'interface (lot E4), sur les comptes fictifs de
+// src/mock.ts. Chaque test part d'une page neuve : stockage local vide.
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+
+/** Ouvre une rédaction par « Nouveau courrier » et rend sa fenêtre. */
+async function newMail(context: BrowserContext, page: Page): Promise<Page> {
+  const [compose] = await Promise.all([
+    context.waitForEvent("page"),
+    page.getByRole("button", { name: "Nouveau courrier" }).click(),
+  ]);
+  await expect(compose.getByLabel("Objet")).toBeVisible();
+  return compose;
+}
+
+/** Remplit destinataire, objet et texte. */
+async function write(compose: Page, to: string, subject: string, body: string) {
+  await compose.getByPlaceholder("Nom ou adresse").fill(to);
+  await compose.getByLabel("Objet").fill(subject);
+  await compose.getByLabel("Corps du message").click();
+  await compose.keyboard.type(body);
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.goto("/");
+});
+
+test("démarrage : boîte de réception unifiée, dossiers et barre d'état", async ({ page }) => {
+  await expect(page.getByText("Pièces manquantes pour la clôture")).toBeVisible();
+  await expect(page.getByText("Votre relevé d'octobre est disponible")).toBeVisible();
+  // Lot E3 : dossiers spéciaux dans la langue de l'interface.
+  await expect(page.getByText("Éléments envoyés").first()).toBeVisible();
+  // Lot E2 : pas d'indicateur d'attente, l'heure de la dernière synchronisation.
+  await expect(page.getByText(/À jour à \d/)).toBeVisible();
+  await expect(page.getByText("Synchronisation…")).toHaveCount(0);
+});
+
+test("lecture : le corps s'affiche dans un cadre sans script", async ({ page }) => {
+  await page.getByText("Repas de dimanche").click();
+  const frame = page.locator("iframe").first();
+  // Défense du modèle de menace : le cadre du message n'exécute jamais de script.
+  await expect(frame).toHaveAttribute("sandbox", /^(?!.*allow-scripts).*$/);
+  await expect(page.frameLocator("iframe").first().locator("body")).toContainText("On se retrouve à 12 h 30 dimanche ?");
+});
+
+test("envoi : la fenêtre se ferme aussitôt, le résultat arrive dans la fenêtre principale", async ({ context, page }) => {
+  const compose = await newMail(context, page);
+  await write(compose, "marie.dupont@example.com", "Dimanche", "C'est noté !");
+  const closed = compose.waitForEvent("close");
+  await compose.getByRole("button", { name: "Envoyer", exact: true }).click();
+  await closed;
+  await expect(page.getByText("Message envoyé", { exact: true })).toBeVisible();
+  // Rien ne reste à reprendre : la copie de secours est retirée.
+  await expect(page.getByText("Brouillon non enregistré retrouvé")).toHaveCount(0);
+});
+
+test("envoi refusé : la rédaction se rouvre avec le message et l'erreur", async ({ context, page }) => {
+  const compose = await newMail(context, page);
+  await write(compose, "echec@example.com", "Message à renvoyer", "Texte gardé");
+  const [reopened] = await Promise.all([
+    context.waitForEvent("page"),
+    compose.getByRole("button", { name: "Envoyer", exact: true }).click(),
+  ]);
+  await expect(page.getByText("Message non envoyé", { exact: true })).toBeVisible();
+  await expect(reopened.getByLabel("Objet")).toHaveValue("Message à renvoyer");
+  await expect(reopened.getByText(/550 destinataire refusé/)).toBeVisible();
+  await expect(reopened.getByLabel("Corps du message")).toContainText("Texte gardé");
+});
+
+test("envoi sans destinataire : la fenêtre reste ouverte", async ({ context, page }) => {
+  const compose = await newMail(context, page);
+  await compose.getByLabel("Objet").fill("Sans destinataire");
+  await compose.getByRole("button", { name: "Envoyer", exact: true }).click();
+  await expect(compose.getByLabel("Objet")).toBeVisible();
+  expect(compose.isClosed()).toBe(false);
+});
+
+test("F5 : la touche Suppr dans Contacts ne touche pas au message sélectionné", async ({ page }) => {
+  await page.getByText("Repas de dimanche").click();
+  await page.getByRole("button", { name: "Contacts" }).click();
+  // La vue Courrier reste dans la page, cachée : seul le contact visible compte.
+  await expect(page.getByRole("button", { name: "Nouveau contact" })).toBeVisible();
+  await page.getByText("Sophie Bernard").filter({ visible: true }).first().click();
+  await page.keyboard.press("Delete");
+  await page.getByRole("button", { name: "Boîte de réception unifiée" }).click();
+  // Toujours dans la liste (et encore ouvert dans le volet de lecture).
+  await expect(page.getByText("Repas de dimanche").first()).toBeVisible();
+  await expect(page.getByText("Déplacé vers la corbeille")).toHaveCount(0);
+});
+
+test("F4 : un rendez-vous de plus de 24 h modifié garde ses heures", async ({ page }) => {
+  await page.getByRole("button", { name: "Agenda" }).click();
+  // Un rendez-vous existant s'ouvre sur sa fiche ; « Modifier » mène à l'éditeur (lot H1b).
+  await page.getByText("Conférence DevOps").first().click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Modifier" }).click();
+  await dialog.getByLabel("Lieu").fill("Lyon, salle Rhône");
+  await dialog.getByRole("button", { name: "Enregistrer" }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByText("Conférence DevOps").first().click();
+  await expect(dialog.getByText("Lyon, salle Rhône")).toBeVisible();
+  await dialog.getByRole("button", { name: "Modifier" }).click();
+  await expect(dialog.getByLabel("Lieu")).toHaveValue("Lyon, salle Rhône");
+  await expect(dialog.getByLabel("Heure de début")).toHaveValue("09:00");
+  await expect(dialog.getByLabel("Heure de fin")).toHaveValue("17:00");
+  await expect(dialog.getByLabel("Toute la journée")).not.toBeChecked();
+});
+
+test("F12 : abandonner pendant un enregistrement lent ne laisse aucun brouillon", async ({ context, page }) => {
+  // Serveur lent : l'enregistrement du brouillon dure deux secondes.
+  await page.evaluate(() => localStorage.setItem("vortex.demo.lenteur", "2000"));
+  const compose = await newMail(context, page);
+  await write(compose, "marie.dupont@example.com", "Brouillon abandonné", "À jeter");
+  await compose.getByRole("button", { name: "Enregistrer", exact: true }).click();
+  await compose.getByRole("button", { name: "Abandonner", exact: true }).click();
+  const closed = compose.waitForEvent("close");
+  await compose.getByRole("dialog").getByRole("button", { name: "Supprimer" }).click();
+  await closed;
+  const onServer = await page.evaluate(() => JSON.parse(localStorage.getItem("vortex.demo.brouillons") ?? "[]"));
+  expect(onServer).toEqual([]);
+});
+
+test("G1 : un expéditeur refusé par DMARC est signalé", async ({ page }) => {
+  await page.getByText("Action requise : vérifiez votre compte").click();
+  await expect(page.getByRole("alert").filter({ hasText: "Expéditeur non vérifié" })).toContainText("banque.example.com");
+  await expect(page.getByRole("alert").filter({ hasText: "Expéditeur non vérifié" })).toContainText("(DMARC)");
+  // Un expéditeur authentifié n'a pas de bandeau.
+  await page.getByText("Repas de dimanche").click();
+  await expect(page.getByText("Expéditeur non vérifié")).toHaveCount(0);
+});
+
+test("E6 : recherche dans tous les dossiers, puis retour à la boîte", async ({ page }) => {
+  await expect(page.getByText("Votre relevé d'octobre est disponible")).toBeVisible();
+  const search = page.getByPlaceholder("Rechercher partout");
+  // Mot du corps du message seulement, pas de son objet.
+  await search.fill("justificatifs");
+  await search.press("Enter");
+  const list = page.getByRole("listbox", { name: "Messages" });
+  await expect(list.getByText("Pièces manquantes pour la clôture")).toBeVisible();
+  await expect(list.getByText("Votre relevé d'octobre est disponible")).toHaveCount(0);
+  await search.press("Escape");
+  await expect(page.getByText("Votre relevé d'octobre est disponible")).toBeVisible();
+});
+
+test("E6 : déplacer un message vers un dossier d'un autre nom", async ({ page }) => {
+  const list = page.getByRole("listbox", { name: "Messages" });
+  await list.getByText("Pièces manquantes pour la clôture").click();
+  await page.getByTitle("Déplacer vers").click();
+  await page.getByRole("menuitem", { name: "Clients", exact: true }).click();
+  // Titre de la notification (le texte est aussi lu par la zone annoncée aux lecteurs d'écran).
+  await expect(page.getByText("1 élément déplacé vers « Clients » (OVH pro)", { exact: true })).toBeVisible();
+  // Plus dans la boîte de réception unifiée.
+  await expect(list.getByText("Pièces manquantes pour la clôture")).toHaveCount(0);
+});
+
+test("E6 : paramètres et licences chargés à la demande", async ({ page }) => {
+  await page.getByRole("button", { name: "Comptes et paramètres" }).click();
+  const settings = page.getByRole("dialog", { name: "Paramètres" });
+  await expect(settings.getByRole("heading", { name: "Paramètres" })).toBeVisible();
+  await settings.getByRole("button", { name: "À propos" }).click();
+  await expect(settings.getByText(/Vortex Mail utilise \d+ bibliothèques open source/)).toBeVisible();
+  await settings.getByRole("button", { name: "Fermer" }).click();
+  await expect(settings).toHaveCount(0);
+  // Rouverts : la fenêtre déjà chargée revient aussitôt.
+  await page.getByRole("button", { name: "Comptes et paramètres" }).click();
+  await expect(page.getByRole("dialog", { name: "Paramètres" })).toBeVisible();
+});

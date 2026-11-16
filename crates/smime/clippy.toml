@@ -1,0 +1,6 @@
+# Réglages de Clippy de MailCraft, pour son code repris (voir Cargo.toml) : dans les tests,
+# unwrap(), expect(), panic!() et l'indexation restent admis.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

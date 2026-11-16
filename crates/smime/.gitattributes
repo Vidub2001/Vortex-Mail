@@ -1,0 +1,3 @@
+# Messages et certificats de test gardés octet pour octet : la signature couvre
+# leurs fins de ligne CRLF.
+testdata/** binary

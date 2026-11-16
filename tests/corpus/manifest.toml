@@ -1,0 +1,900 @@
+# Corpus de non-régression de Vortex Mail (lot 0 de docs/plan-lots.md).
+#
+# [[attaque]]  : un mail piégé (.eml dans attaques/) par attaque de la relecture
+#                du 5 novembre 2026, avec le comportement attendu une fois
+#                corrigé.
+# [[scenario]] : un cas de perte, de duplication ou de disparition de données,
+#                décrit pas à pas ; le lot indiqué en fait un test automatique.
+#
+# etat = "accepte-temporairement" tant que le lot correctif n'est pas livré,
+# puis "corrige" quand un test automatique vérifie l'attendu ; une entrée
+# "corrige" nomme ce test : tests = ["chemin::fonction"] pour un test Rust,
+# ["chemin::titre"] pour un test de l'interface (lot 9b).
+# Vérifié par `make corpus` (scripts/audit/corpus_check.py).
+
+# --- Pièces jointes (lot 2) ---------------------------------------------------
+
+[[attaque]]
+fichier = "S1-a-injection-cmd.eml"
+relecture = "S1"
+lot = 2
+piece_jointe = "a&calc&.pdf"
+attendu = "Sous Windows, l'ouverture ne lance aucune autre commande que la visionneuse PDF."
+tests = [
+  "src-tauri/tests/corpus.rs::pieces_jointes_piegees_neutralisees",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S1-b-point-final.eml"
+relecture = "S1"
+lot = 2
+piece_jointe = "invoice.exe."
+attendu = "Le point final est retiré et le fichier est reconnu comme exécutable : pas d'ouverture directe."
+tests = [
+  "src-tauri/tests/corpus.rs::pieces_jointes_piegees_neutralisees",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S1-c-hta.eml"
+relecture = "S1"
+lot = 2
+piece_jointe = "x.hta"
+attendu = "Type hors liste blanche : jamais d'ouverture directe ; seul « Télécharger » est proposé, vers le dossier Téléchargements."
+tests = [
+  "src-tauri/tests/corpus.rs::pieces_jointes_piegees_neutralisees",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S1-d-pe-deguise-en-pdf.eml"
+relecture = "S1"
+lot = 2
+piece_jointe = "facture.pdf"
+attendu = "Les magic bytes (MZ) ne correspondent pas à .pdf : alerte et pas d'ouverture directe."
+tests = [
+  "src-tauri/tests/corpus.rs::pieces_jointes_piegees_neutralisees",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S7-bidi-nom-inverse.eml"
+relecture = "S7"
+lot = 2
+piece_jointe = "photo‮gpj.exe"
+attendu = "Le caractère U+202E est retiré : le nom affiché et enregistré se termine bien par .exe."
+tests = [
+  "src-tauri/tests/corpus.rs::pieces_jointes_piegees_neutralisees",
+  "src-tauri/tests/corpus.rs::noms_affiches_nettoyes",
+]
+etat = "corrige"
+
+# --- Corps des messages et liens (lot 4) ----------------------------------------
+
+[[attaque]]
+fichier = "S2-a-srcset.eml"
+relecture = "S2"
+lot = 4
+attendu = "Répondre ou transférer ne déclenche aucune requête vers tracker.example.invalid."
+tests = [
+  "src-tauri/tests/corpus.rs::html_cite_ou_rouvert_nettoye",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S2-b-svg-image.eml"
+relecture = "S2"
+lot = 4
+attendu = "Répondre ou transférer ne déclenche aucune requête vers tracker.example.invalid."
+tests = [
+  "src-tauri/tests/corpus.rs::html_cite_ou_rouvert_nettoye",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S2-c-style-background.eml"
+relecture = "S2"
+lot = 4
+attendu = "Les url() des styles sont supprimées : aucune requête à la citation."
+tests = [
+  "src-tauri/tests/corpus.rs::html_cite_ou_rouvert_nettoye",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S2-d-table-background.eml"
+relecture = "S2 F14"
+lot = 4
+attendu = "L'attribut background est supprimé : aucune requête à la citation."
+tests = [
+  "src-tauri/tests/corpus.rs::html_cite_ou_rouvert_nettoye",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S2-e-video-poster.eml"
+relecture = "S2"
+lot = 4
+attendu = "La balise video et son poster sont supprimés : aucune requête."
+tests = [
+  "src-tauri/tests/corpus.rs::html_cite_ou_rouvert_nettoye",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S2-f-input-image.eml"
+relecture = "S2"
+lot = 4
+attendu = "Le champ input image est supprimé : aucune requête."
+tests = [
+  "src-tauri/tests/corpus.rs::html_cite_ou_rouvert_nettoye",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S2-g-picture-source.eml"
+relecture = "S2 F14"
+lot = 4
+attendu = "Les balises picture/source sont supprimées : aucune requête."
+tests = [
+  "src-tauri/tests/corpus.rs::html_cite_ou_rouvert_nettoye",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S2-h-faux-dialogue.eml"
+relecture = "S2"
+lot = 4
+attendu = "position:fixed est retiré : le contenu cité ne peut pas recouvrir la fenêtre de rédaction."
+tests = [
+  "src-tauri/tests/corpus.rs::html_cite_ou_rouvert_nettoye",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S2-i-image-set.eml"
+relecture = "S2"
+lot = 8
+attendu = "Cité ou rouvert, image-set et -webkit-image-set sont refusés, list-style aussi (seul list-style-type est gardé) : aucune requête."
+tests = [
+  "src-tauri/tests/corpus.rs::html_cite_ou_rouvert_nettoye",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S3-mxss-noscript.eml"
+relecture = "S3"
+lot = 4
+attendu = "Aucun script ne s'exécute en répondant : window.__vortexCorpusPwned reste indéfini."
+tests = [
+  "src-tauri/tests/corpus.rs::html_cite_ou_rouvert_nettoye",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S4-brouillon-script.eml"
+relecture = "S4"
+lot = 4
+attendu = "Placé dans Brouillons puis ouvert, le message est nettoyé : aucun script ne s'exécute."
+tests = [
+  "src-tauri/tests/corpus.rs::html_cite_ou_rouvert_nettoye",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S6-a-lien-navigation.eml"
+relecture = "S6"
+lot = 4
+attendu = "Un clic ouvre le navigateur externe, jamais le volet de lecture ; le lien trompeur est signalé."
+tests = [
+  "tests/frontend/links.test.mjs::corpus S6-a : le lien trompeur est signalé",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S6-b-meta-refresh.eml"
+relecture = "S6"
+lot = 4
+attendu = "La balise meta refresh est supprimée : aucune navigation ni requête à l'affichage."
+tests = [
+  "src-tauri/tests/corpus.rs::meta_refresh_supprime",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S6-c-meta-variantes.eml"
+relecture = "S6"
+lot = 8
+attendu = "Mode Original : toutes les balises meta, link et base sont retirées, y compris « > » entre guillemets et « &#114;efresh » ; ni navigation, ni pré-résolution DNS."
+tests = [
+  "src-tauri/tests/corpus.rs::meta_refresh_supprime",
+]
+etat = "corrige"
+
+# --- Réseau (lot 5) -------------------------------------------------------------
+
+[[attaque]]
+fichier = "S5-a-notify-option.eml"
+relecture = "S5"
+lot = 5
+attendu = "La notification s'affiche normalement, avec « --help » comme nom d'expéditeur."
+tests = [
+  "src-tauri/tests/corpus.rs::notifications_piegees_neutralisees",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "S5-b-notify-balisage.eml"
+relecture = "S5"
+lot = 5
+attendu = "L'objet s'affiche en texte brut dans la notification, sans lien cliquable."
+tests = [
+  "src-tauri/tests/corpus.rs::notifications_piegees_neutralisees",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "A2-a-crlf-dans-url.eml"
+relecture = "A2"
+lot = 5
+attendu = "Afficher les images ne contacte aucun serveur, même public : l'URL contenant CR/LF est rejetée."
+tests = [
+  "src-tauri/tests/corpus.rs::images_vers_le_reseau_local_refusees",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "A2-b-ssrf-reseau-local.eml"
+relecture = "A2"
+lot = 5
+attendu = "Afficher les images ne contacte aucune adresse privée ou link-local."
+tests = [
+  "src-tauri/tests/corpus.rs::images_vers_le_reseau_local_refusees",
+]
+etat = "corrige"
+
+# --- Agenda (lot 6) -------------------------------------------------------------
+
+[[attaque]]
+fichier = "S8-trigger-debordement.eml"
+relecture = "S8"
+lot = 6
+attendu = "L'invitation s'ouvre sans plantage ; le rappel aberrant est ignoré."
+tests = [
+  "src-tauri/tests/corpus.rs::rappel_aberrant_ignore",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "G1-expediteur-usurpe.eml"
+relecture = "G1"
+lot = "G1"
+attendu = "Le serveur de réception a noté l'échec DMARC : un bandeau « Expéditeur non vérifié » s'affiche, malgré l'en-tête « tout va bien » que l'expéditeur a ajouté plus bas."
+tests = [
+  "src-tauri/tests/corpus.rs::expediteur_usurpe_signale",
+  "tests/ui/vortex.spec.ts::G1 : un expéditeur refusé par DMARC est signalé",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "A5-rrule-complexe.eml"
+relecture = "A5"
+lot = 6
+attendu = "Enregistrée dans un agenda Outlook.com, la série est créée à l'identique ou refusée avec un message clair."
+tests = [
+  "src-tauri/tests/corpus.rs::repetition_complexe_refusee_pour_outlook_com",
+]
+etat = "corrige"
+
+[[attaque]]
+fichier = "F7-occurrence-seule.eml"
+relecture = "F7"
+lot = 6
+attendu = "L'occurrence seule s'affiche le vendredi 13 novembre 2026 à 9 h."
+tests = [
+  "tests/frontend/calendar.test.mjs::F7 (corpus) : invitation à une seule occurrence d'une série",
+]
+etat = "corrige"
+
+# --- Scénarios de perte de données ------------------------------------------------
+
+[[scenario]]
+id = "Y1"
+lot = 3
+titre = "Brouillon et vrai message avec le même numéro interne"
+etapes = [
+  "Serveur sans UIDPLUS, recherche par Message-ID sans résultat juste après l'APPEND.",
+  "Enregistrer un brouillon : il reçoit un identifiant provisoire N.",
+  "Une synchronisation attribue N à un autre message M.",
+  "Laisser l'enregistrement automatique remplacer le brouillon.",
+]
+attendu = "M reste intact sur le serveur ; seul l'ancien brouillon est supprimé."
+tests = [
+  "src-tauri/src/cache.rs::identifiant_provisoire_jamais_reattribue",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Y2"
+lot = 3
+titre = "Déplacement entre comptes interrompu par le réseau"
+etapes = [
+  "Déplacer un message du compte A vers un dossier du compte B.",
+  "La copie dans B réussit, la suppression dans A échoue (réseau).",
+  "Rejouer les actions en attente plusieurs fois, A restant instable.",
+]
+attendu = "Une seule copie dans B ; la source est supprimée dès que A répond."
+tests = [
+  "crates/mail-core/tests/move_messages.rs::source_not_removed_is_finished_without_a_second_copy",
+  "crates/mail-core/tests/move_messages.rs::interrupted_after_copy_only_deletes_the_source",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Y3"
+lot = 3
+titre = "Dossier jamais ouvert où l'on a enregistré un brouillon"
+etapes = [
+  "Ajouter un compte dont le dossier Brouillons contient déjà 40 messages.",
+  "Sans ouvrir Brouillons, rédiger un mail (enregistrement automatique).",
+  "Ouvrir Brouillons.",
+]
+attendu = "Les 40 anciens brouillons et le nouveau sont listés."
+etat = "corrige"
+tests = [
+  "src-tauri/src/router.rs::y3_dossier_jamais_synchronise_relu_entierement",
+]
+
+[[scenario]]
+id = "Y4"
+lot = 3
+titre = "Déplacement hors ligne refusé ensuite par le serveur"
+etapes = [
+  "Hors ligne, déplacer un ancien message vers « Projets ».",
+  "Supprimer « Projets » depuis un autre logiciel.",
+  "Revenir en ligne : le serveur refuse le déplacement.",
+]
+attendu = "Le message réapparaît dans son dossier d'origine."
+etat = "corrige"
+tests = [
+  "src-tauri/src/router.rs::y4_deplacement_refuse_au_retour_du_reseau",
+]
+
+[[scenario]]
+id = "Y5"
+lot = 3
+titre = "Suppression sur un serveur sans UIDPLUS"
+etapes = [
+  "Un autre logiciel marque 30 messages de la boîte de réception comme supprimés, sans les purger.",
+  "Dans Vortex Mail, déplacer un message de cette boîte vers un autre compte.",
+]
+attendu = "Les 30 messages marqués restent sur le serveur ; seul le message déplacé est purgé."
+tests = [
+  "crates/imap-lite/tests/fake_server.rs::expunge_without_uidplus_spares_messages_marked_by_others",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Y6"
+lot = 3
+titre = "Changement de serveur avec des actions en attente"
+etapes = [
+  "Hors ligne (mauvais hôte), supprimer et marquer des messages.",
+  "Corriger l'hôte ou l'identifiant du compte.",
+]
+attendu = "Les actions en attente de l'ancien serveur sont effacées et ne touchent aucun message du nouveau."
+tests = [
+  "src-tauri/src/cache.rs::changement_de_serveur_efface_les_actions_en_attente",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Y7"
+lot = 3
+titre = "Mot-clé IMAP contenant un crochet"
+etapes = [
+  "Un autre logiciel pose le mot-clé « [todo » sur un message.",
+  "Synchroniser le dossier, puis lancer une recherche.",
+]
+attendu = "La synchronisation réussit et la recherche renvoie ses propres résultats."
+tests = [
+  "crates/imap-lite/src/response.rs::keyword_with_bracket_is_a_plain_atom",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Y8"
+lot = 3
+titre = "Coupure après un APPEND accepté par le serveur"
+etapes = [
+  "Envoyer un message ; la connexion tombe juste après l'APPEND dans Envoyés.",
+  "Laisser la nouvelle tentative automatique se faire.",
+]
+attendu = "Une seule copie dans Envoyés (même chose pour Brouillons et les déplacements)."
+etat = "corrige"
+tests = [
+  "src-tauri/src/router.rs::y8_append_rejoue_sans_doublon",
+  "src-tauri/src/router.rs::y8_append_premier_essai_et_message_absent",
+]
+
+[[scenario]]
+id = "Y9"
+lot = 3
+titre = "Date interne malformée"
+etapes = [
+  "Le serveur renvoie INTERNALDATE \"01-Jan-2026 10:00:00 +1é1\".",
+  "Synchroniser le dossier.",
+]
+attendu = "La synchronisation continue ; le message prend une date de repli."
+tests = [
+  "crates/imap-lite/src/date.rs::malformed_zone_is_rejected_without_panic",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "F3"
+lot = 3
+titre = "Règles sur une boîte de plus de 5 000 messages"
+etapes = [
+  "Boîte de 8 000 messages, une règle « marquer comme lu ».",
+  "Marquer un ancien message non lu, puis synchroniser deux fois.",
+]
+attendu = "La règle ne s'applique qu'aux nouveaux messages ; le message reste non lu."
+etat = "corrige"
+tests = [
+  "tests/frontend/rules.test.mjs::F3 : sur une grande boîte, un ancien message redevenu non lu n'est pas repris par les règles",
+]
+
+[[scenario]]
+id = "F9"
+lot = 3
+titre = "Règle « destinataires ne contiennent pas » sur un message illisible"
+etapes = [
+  "Règle : destinataires ne contiennent pas moi@exemple.fr → Supprimer.",
+  "Le téléchargement du message complet échoue (délai dépassé).",
+]
+attendu = "La règle n'est pas appliquée et sera retentée ; le message reste dans la boîte."
+etat = "corrige"
+tests = [
+  "tests/frontend/rules.test.mjs::F9 : règle « destinataires ne contiennent pas » sur un message illisible, retentée plus tard",
+]
+
+[[scenario]]
+id = "F5"
+lot = 3
+titre = "Touche Suppr hors de la vue Mail"
+etapes = [
+  "Sélectionner un mail, aller dans Contacts, sélectionner un contact.",
+  "Appuyer sur Suppr.",
+]
+attendu = "Seul le contact est concerné ; le mail sélectionné reste en place."
+etat = "corrige"
+tests = [
+  "tests/ui/vortex.spec.ts::F5 : la touche Suppr dans Contacts ne touche pas au message sélectionné",
+]
+
+[[scenario]]
+id = "F2"
+lot = 6
+titre = "Série avec une occurrence modifiée"
+etapes = [
+  "Série hebdomadaire dont une occurrence a été déplacée du mardi au mercredi.",
+  "Renommer la série, ou supprimer une autre occurrence.",
+]
+attendu = "L'occurrence déplacée reste au mercredi, avec ses modifications."
+tests = [
+  "src-tauri/src/pimfmt.rs::ical_series_and_override",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "F4"
+lot = 6
+titre = "Événement de plus de 24 h modifié"
+etapes = [
+  "Conférence du lundi 9 h au mercredi 17 h.",
+  "Corriger le lieu et enregistrer.",
+]
+attendu = "Les heures sont conservées ; l'événement ne devient pas « toute la journée »."
+etat = "corrige"
+tests = [
+  "tests/ui/vortex.spec.ts::F4 : un rendez-vous de plus de 24 h modifié garde ses heures",
+]
+
+[[scenario]]
+id = "F8"
+lot = 6
+titre = "Suppression d'une occurrence déplacée"
+etapes = [
+  "Occurrence déplacée du mardi 14 h au mercredi 10 h.",
+  "Supprimer › Cette occurrence.",
+]
+attendu = "L'occurrence disparaît et ne réapparaît pas au mardi 14 h."
+tests = [
+  "src-tauri/src/pimfmt.rs::occurrences_modifiees_et_series",
+  "tests/frontend/calendar.test.mjs::F7 et F8 : occurrence déplacée avant la date d'origine, et sa valeur d'origine",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "A9"
+lot = 6
+titre = "Déplacement d'un contact ou d'un événement interrompu"
+etapes = [
+  "Déplacer un contact vers un autre carnet.",
+  "La création réussit, la suppression de l'ancien échoue (412 ou réseau).",
+  "Réessayer.",
+]
+attendu = "La copie déplacée n'est créée qu'une fois, même après un nouvel essai ; si l'ancienne n'a pas pu être supprimée, elle reste visible à son ancienne place et se supprime à la main."
+etat = "corrige"
+tests = [
+  "src-tauri/src/pim.rs::a9_deplacement_interrompu_sans_doublon",
+]
+
+[[scenario]]
+id = "A7"
+lot = 5
+titre = "Réponse CardDAV tronquée"
+etapes = [
+  "Le serveur coupe la réponse d'un grand carnet d'adresses au milieu.",
+]
+attendu = "La synchronisation échoue proprement ; aucun contact ne disparaît du cache."
+tests = [
+  "src-tauri/src/http.rs::reponses_tronquees",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "F12"
+lot = 7
+titre = "Abandonner pendant un enregistrement automatique"
+etapes = [
+  "Rédiger, attendre le début de l'enregistrement automatique (serveur lent).",
+  "Cliquer sur Abandonner, puis Supprimer.",
+]
+attendu = "Aucun brouillon ne reste dans Brouillons."
+etat = "corrige"
+tests = [
+  "tests/ui/vortex.spec.ts::F12 : abandonner pendant un enregistrement lent ne laisse aucun brouillon",
+]
+
+[[scenario]]
+id = "C1"
+lot = 7
+titre = "Secret découpé réécrit puis interrompu (trousseau Windows)"
+etapes = [
+  "Compte Outlook.com dont le jeton occupe plusieurs morceaux.",
+  "Le renouvellement du jeton échoue après le premier morceau.",
+]
+attendu = "Le compte reste connecté avec l'ancien ou le nouveau jeton complet, jamais un mélange."
+tests = [
+  "src-tauri/src/secrets.rs::interrupted_rewrite_keeps_the_previous_secret_whole",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "C2"
+lot = 7
+titre = "Import de sauvegarde qui échoue à mi-chemin"
+etapes = [
+  "Comptes {A, B}, sauvegarde {B', C}.",
+  "L'écriture d'un secret échoue pendant l'import.",
+]
+attendu = "La configuration d'avant est intacte : A garde ses secrets et son cache, les contacts locaux sont conservés."
+etat = "corrige"
+tests = [
+  "src-tauri/src/cache.rs::import_interrompu_garde_les_contacts_locaux",
+]
+
+[[scenario]]
+id = "C3"
+lot = 7
+titre = "Clé USB retirée pendant l'écriture du coffre portable"
+etapes = [
+  "Mode portable ; un renouvellement de jeton réécrit le coffre.",
+  "Retirer brutalement la clé.",
+]
+attendu = "Le coffre précédent est récupérable ; un coffre abîmé n'est pas présenté comme « mot de passe incorrect »."
+tests = [
+  "src-tauri/src/secrets.rs::damaged_vault_falls_back_to_its_copy",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "C4"
+lot = 7
+titre = "Import d'une sauvegarde sans mots de passe"
+etapes = [
+  "Exporter une sauvegarde alors que le trousseau était verrouillé.",
+  "L'importer sur une machine où le même compte a son mot de passe.",
+]
+attendu = "Le mot de passe déjà enregistré est conservé ; l'export avait prévenu du mot de passe manquant."
+etat = "corrige"
+tests = [
+  "src-tauri/src/secrets.rs::import_sans_mot_de_passe_garde_celui_du_trousseau",
+]
+
+[[scenario]]
+id = "A8"
+lot = 7
+titre = "Renouvellement de jeton pendant une déconnexion"
+etapes = [
+  "Une synchronisation renouvelle le jeton de l'agenda Outlook.com.",
+  "Pendant ce temps, déconnecter l'agenda.",
+]
+attendu = "Le compte reste déconnecté ; aucun jeton ne réapparaît dans le trousseau."
+tests = [
+  "src-tauri/src/auth.rs::a_renewal_does_not_bring_back_a_signed_out_token",
+]
+etat = "corrige"
+
+# --- Plafonds IMAP (lot 5b) ------------------------------------------------------
+# Trouvés le 10 novembre 2026 en comparant imap-lite au client IMAP de MailCraft.
+# Tests automatiques : crates/imap-lite/src/reader.rs et response.rs.
+
+[[scenario]]
+id = "I1"
+lot = "5b"
+titre = "Parenthèses imbriquées sans fin dans une réponse IMAP"
+etapes = [
+  "Le serveur répond « * 1 FETCH (((((… » avec 200 000 parenthèses ouvrantes.",
+  "Synchroniser le dossier.",
+]
+attendu = "Erreur « réponse du serveur trop volumineuse », session abandonnée ; l'application reste ouverte (plus de débordement de pile)."
+tests = [
+  "crates/imap-lite/src/response.rs::deep_nesting_is_refused_without_overflowing_the_stack",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "I2"
+lot = "5b"
+titre = "Taille de littéral géante"
+etapes = [
+  "Le serveur répond « * 1 FETCH (UID 5 BODY[] {18446744073709551615} x) ».",
+  "Synchroniser le dossier.",
+]
+attendu = "Erreur de protocole, session abandonnée ; le thread de synchronisation ne panique pas."
+tests = [
+  "crates/imap-lite/src/reader.rs::huge_literal_is_refused_before_reading",
+  "crates/imap-lite/src/response.rs::giant_literal_size_does_not_panic",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "I3"
+lot = "5b"
+titre = "Réponse sans fin ou démesurée"
+etapes = [
+  "Le serveur envoie une ligne sans fin, ou annonce un littéral de 50 Go et le remplit.",
+  "Synchroniser le dossier.",
+]
+attendu = "Lecture arrêtée au plafond (ligne de 8 Mo, littéral de 256 Mo, 64 Mo de texte et 1 000 000 de réponses par commande) ; la mémoire reste bornée."
+tests = [
+  "crates/imap-lite/src/reader.rs::line_without_end_is_refused",
+  "crates/imap-lite/src/reader.rs::responses_per_command_are_capped_and_reset",
+]
+etat = "corrige"
+
+# --- Jours de changement d'heure (lot 6b) ---------------------------------------
+# Tests automatiques : tests/frontend/calendar.test.mjs (fuseau Europe/Paris).
+
+[[scenario]]
+id = "F10"
+lot = 6
+titre = "Journée entière le jour du changement d'heure"
+etapes = [
+  "Créer un rendez-vous « toute la journée » le dimanche 25 octobre 2026.",
+  "Enregistrer.",
+]
+attendu = "DTEND vaut le 26 octobre : le rendez-vous garde son jour ; une série de journées entières ne se décale pas."
+tests = [
+  "tests/frontend/calendar.test.mjs::F10 : une journée entière le jour du changement d'heure finit le lendemain",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "F15"
+lot = 6
+titre = "Grille de la semaine et groupe « Hier » les jours de changement d'heure"
+etapes = [
+  "Afficher la semaine du 29 mars 2026 avec un rendez-vous à 10 h ce jour-là.",
+  "Le 26 octobre 2026, regarder un message reçu le 25 octobre à 0 h 30.",
+]
+attendu = "Le rendez-vous est sur la ligne de 10 h ; le message est rangé dans « Hier »."
+tests = [
+  "tests/frontend/calendar.test.mjs::F15 : un rendez-vous de 10 h reste sur la ligne de 10 h les jours de changement d'heure",
+  "tests/frontend/calendar.test.mjs::F15 : les messages de la veille d'un jour de 25 h sont rangés dans « Hier »",
+]
+etat = "corrige"
+
+# --- Fuzzing (lot 8a) --------------------------------------------------------------
+# Trouvés le 10 novembre 2026 en préparant les cibles de fuzz/ (essais au hasard
+# sur les lecteurs sans dépendance). Tests automatiques : xml.rs, date.rs,
+# pimfmt.rs.
+
+[[scenario]]
+id = "Z1"
+lot = 8
+titre = "Réponse WebDAV imbriquée sans fin"
+etapes = [
+  "Le serveur CalDAV ou CardDAV répond par 200 000 balises ouvrantes imbriquées.",
+  "Synchroniser l'agenda ou les contacts.",
+]
+attendu = "Imbrication lue jusqu'à 256 niveaux, le reste ignoré ; l'application reste ouverte (plus de débordement de pile à la lecture ni à la libération de l'arbre)."
+tests = [
+  "src-tauri/src/xml.rs::endless_nesting_is_capped",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Z2"
+lot = 8
+titre = "Date IMAP démesurée"
+etapes = [
+  "Le serveur annonce « INTERNALDATE \"02-Nov-20264294967296 10:00:00 +0100\" ».",
+  "Synchroniser le dossier.",
+]
+attendu = "Date ignorée comme une date illisible ; le thread de synchronisation ne panique pas."
+tests = [
+  "crates/imap-lite/src/date.rs::out_of_range_values_are_rejected_without_overflow",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Z3"
+lot = 8
+titre = "Agenda ou contact démesuré"
+etapes = [
+  "Recevoir une invitation de 30 000 rendez-vous, l'un avec 10 000 dates exclues et une ligne de 5 Mo.",
+  "Ou un contact avec 1 000 adresses.",
+]
+attendu = "Lecture bornée (20 000 rendez-vous, 5 000 dates exclues par rendez-vous, lignes d'1 Mo au plus, 100 adresses ou numéros par contact) ; une ligne trop longue est recopiée telle quelle à la réécriture."
+tests = [
+  "src-tauri/src/pimfmt.rs::reading_is_capped",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Z4"
+lot = 8
+titre = "Fin de bloc en trop dans un rendez-vous"
+etapes = [
+  "Recevoir un rendez-vous contenant « END:VTODO » avant une alarme qui a sa propre DESCRIPTION.",
+  "Ouvrir le rendez-vous.",
+]
+attendu = "La description du rendez-vous reste la sienne, le rappel est lu ; avant, celle de l'alarme la remplaçait."
+tests = [
+  "src-tauri/src/pimfmt.rs::stray_end_does_not_turn_the_alarm_into_the_event",
+]
+etat = "corrige"
+
+# --- Relecture du modèle de menace (lot 8e) -------------------------------------
+# Constats de la relecture indépendante du 10 novembre 2026.
+# Tests automatiques : dav.rs, mimeparse.rs, secrets.rs, router.rs, windows.rs.
+
+[[scenario]]
+id = "Z5"
+lot = 8
+titre = "Serveur d'agenda qui renvoie vers un autre hôte"
+etapes = [
+  "Le serveur CalDAV répond « current-user-principal » avec http://autre.example/p/.",
+  "Synchroniser l'agenda.",
+]
+attendu = "Aucune requête vers autre.example : le mot de passe n'est envoyé qu'aux sites du compte, en HTTPS ; un message dit quelle adresse a été refusée."
+tests = [
+  "src-tauri/src/dav.rs::credentials_stay_on_the_account_sites",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Z6"
+lot = 8
+titre = "Image intégrée répétée des milliers de fois"
+etapes = [
+  "Recevoir un mail qui affiche 5 000 fois la même image intégrée (cid:).",
+  "Ouvrir le mail, ou laisser le préchargement hors connexion le lire.",
+]
+attendu = "Le budget de 8 Mo compte chaque copie : l'image n'est pas intégrée, la mémoire reste bornée ; l'application reste ouverte."
+tests = [
+  "src-tauri/src/mimeparse.rs::repeated_inline_image_is_counted_for_each_use",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Z7"
+lot = 8
+titre = "Ancien mot de passe maître du coffre portable"
+etapes = [
+  "Changer le mot de passe maître en mode portable.",
+  "Redémarrer et saisir l'ancien mot de passe.",
+]
+attendu = "Refusé : la copie de secours n'est essayée que si le coffre est abîmé, et elle est réécrite avec le nouveau mot de passe."
+tests = [
+  "src-tauri/src/secrets.rs::damaged_vault_falls_back_to_its_copy",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Z8"
+lot = 8
+titre = "Fenêtre de rédaction qui vise un message reçu"
+etapes = [
+  "Depuis une fenêtre de rédaction compromise, demander la reprise ou l'abandon d'un message de la boîte de réception.",
+]
+attendu = "Refusé avant toute connexion : seuls les messages du dossier « Brouillons » peuvent être repris, remplacés ou supprimés depuis la rédaction."
+tests = [
+  "src-tauri/src/router.rs::seuls_les_brouillons_sont_repris_ou_abandonnes",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Z9"
+lot = 8
+titre = "Fenêtre de rédaction qui joint la pièce jointe d'un autre message"
+etapes = [
+  "Transférer le message A, puis, depuis la fenêtre de rédaction, joindre une pièce jointe du message B.",
+]
+attendu = "Envoi et enregistrement refusés : seules les pièces jointes des messages transférés, déclarés par la fenêtre qui a ouvert la rédaction, peuvent être reprises."
+tests = [
+  "src-tauri/src/windows.rs::pieces_jointes_reprises_seulement_si_accordees",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Z10"
+lot = 8
+titre = "Sauvegarde fabriquée qui écrit dans le trousseau"
+etapes = [
+  "Importer une sauvegarde (mot de passe connu) qui contient une entrée de trousseau étrangère à l'application et un réglage hors « vortex. ».",
+]
+attendu = "Seules les entrées du trousseau des comptes de la sauvegarde sont écrites, avec leur libellé habituel ; les réglages hors « vortex. » sont ignorés."
+tests = [
+  "src-tauri/src/backup.rs::imported_backup_writes_only_known_entries",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Z11"
+lot = 8
+titre = "Répétition dont la règle compte des centaines de milliers de jours"
+etapes = [
+  "Recevoir ou synchroniser un rendez-vous FREQ=WEEKLY avec BYDAY répété 300 000 fois.",
+  "Ouvrir l'agenda sur la semaine du rendez-vous.",
+]
+attendu = "Valeurs invalides retirées, doublons fusionnés, 64 valeurs au plus : l'agenda s'affiche aussitôt, sans occurrence en double."
+tests = [
+  "tests/frontend/calendar.test.mjs::Z11 : règle BYDAY démesurée bornée, sans figer l'affichage",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Z12"
+lot = 8
+titre = "Message-ID repris d'un mail reçu avec un retour chariot"
+etapes = [
+  "Recevoir un mail dont le Message-ID contient un CR isolé suivi de « Bcc: … ».",
+  "Y répondre.",
+]
+attendu = "La réponse n'a aucun en-tête ajouté : les caractères de contrôle de In-Reply-To et References deviennent des espaces."
+tests = [
+  "crates/mail-core/src/compose.rs::reply_headers_cannot_open_a_new_header",
+]
+etat = "corrige"
+
+[[scenario]]
+id = "Z13"
+lot = 9
+titre = "Fenêtre secondaire compromise qui dépose une règle de tri"
+etapes = [
+  "Depuis une fenêtre de message ou de rédaction compromise, écrire une règle « supprimer » dans le stockage local.",
+  "Émettre un événement vers la fenêtre principale.",
+]
+attendu = "Le stockage de la fenêtre secondaire est séparé : la fenêtre principale ne voit pas la règle ; l'émission directe d'événements est refusée, seul le backend relaie les formes connues."
+tests = [
+  "src-tauri/tests/permissions.rs::fenetres_secondaires_sans_emission_d_evenements",
+  "src-tauri/src/windows.rs::reglages_confies_par_la_fenetre_principale_seulement",
+  "src-tauri/src/windows.rs::evenements_des_fenetres_verifies",
+]
+etat = "corrige"

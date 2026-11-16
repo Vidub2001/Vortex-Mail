@@ -1,0 +1,4 @@
+<html><head><meta http-equiv="refresh" content="0;url=https://example.com/"><style>p{color:red}</style></head>
+<body><p>Bonjour <b>Marie</b>, <a href="https://example.com/x?a=1&amp;b=2">lien</a></p>
+<img src="https://example.com/logo.png"><img src="cid:image001@x"><blockquote type="cite"><div>cité</div></blockquote>
+<form action="https://example.com"><input name="p"></form><script>alert(1)</script><svg><use href="#a"/></svg></body></html>

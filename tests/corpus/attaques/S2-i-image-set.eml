@@ -1,0 +1,10 @@
+From: "Expéditeur de test" <attaquant@example.invalid>
+To: victime@example.invalid
+Subject: Message (image-set dans une citation)
+Date: Tue, 10 Nov 2026 10:00:00 +0100
+Message-ID: <4410033151725395121@corpus.vortexmail.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+<ul style="list-style:image-set('https://tracker.example.invalid/u123/a' 1x)"><li style="list-style-type:-webkit-image-set(url(https://tracker.example.invalid/u123/b) 1x)">Bonjour</li></ul>

@@ -1,0 +1,10 @@
+# Ce fichier remplace la liste par défaut de Semgrep : tout est explicite.
+.git/
+node_modules/
+target/
+dist/
+src-tauri/gen/
+tests/corpus/
+THIRD_PARTY_LICENSES.txt
+*.lock
+package-lock.json

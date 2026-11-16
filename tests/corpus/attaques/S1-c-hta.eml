@@ -1,0 +1,20 @@
+From: "Expéditeur de test" <attaquant@example.invalid>
+To: victime@example.invalid
+Subject: Document HTA
+Date: Mon, 09 Nov 2026 10:00:00 +0100
+Message-ID: <3644994595693061910@corpus.vortexmail.invalid>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="CORPUS"
+
+--CORPUS
+Content-Type: text/plain; charset="utf-8"
+
+Pièce jointe de test du corpus Vortex Mail. Contenu inerte.
+
+--CORPUS
+Content-Type: application/hta
+Content-Disposition: attachment; filename="x.hta"
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PCEtLSBjb3JwdXMgVm9ydGV4IE1haWwsIGNvbnRlbnUgaW5lcnRlIC0tPjwvaHRtbD4K
+--CORPUS--

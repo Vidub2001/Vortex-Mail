@@ -1,0 +1,10 @@
+From: "Expéditeur de test" <attaquant@example.invalid>
+To: victime@example.invalid
+Subject: Message (noscript)
+Date: Mon, 09 Nov 2026 10:00:00 +0100
+Message-ID: <6843734744657324221@corpus.vortexmail.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+<noscript><p title="</noscript><img src=x onerror=window.__vortexCorpusPwned=1>"></p></noscript>

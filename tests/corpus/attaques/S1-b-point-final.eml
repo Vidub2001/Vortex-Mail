@@ -1,0 +1,20 @@
+From: "Expéditeur de test" <attaquant@example.invalid>
+To: victime@example.invalid
+Subject: Facture (extension suivie d'un point)
+Date: Mon, 09 Nov 2026 10:00:00 +0100
+Message-ID: <4114665582618949700@corpus.vortexmail.invalid>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="CORPUS"
+
+--CORPUS
+Content-Type: text/plain; charset="utf-8"
+
+Pièce jointe de test du corpus Vortex Mail. Contenu inerte.
+
+--CORPUS
+Content-Type: application/octet-stream
+Content-Disposition: attachment; filename="invoice.exe."
+Content-Transfer-Encoding: base64
+
+TVogY29ycHVzIFZvcnRleCBNYWlsLCBjb250ZW51IGluZXJ0ZQo=
+--CORPUS--

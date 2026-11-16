@@ -1,0 +1,10 @@
+From: "Expéditeur de test" <attaquant@example.invalid>
+To: victime@example.invalid
+Subject: Message (variantes de meta refresh, pré-résolution DNS)
+Date: Tue, 10 Nov 2026 10:00:00 +0100
+Message-ID: <8810233151725395121@corpus.vortexmail.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+<html><head><meta content="0;url=https://tracker.example.invalid/u123/a>b" http-equiv="refresh"><meta http-equiv="&#114;efresh" content="0;url=https://tracker.example.invalid/u123/b"><link rel="dns-prefetch" href="//u123.tracker.example.invalid"><link rel="preconnect" href="https://u123.tracker.example.invalid"><base href="https://tracker.example.invalid/"></head><body>Bonjour</body></html>

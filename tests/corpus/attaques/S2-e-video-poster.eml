@@ -1,0 +1,10 @@
+From: "Expéditeur de test" <attaquant@example.invalid>
+To: victime@example.invalid
+Subject: Newsletter (poster vidéo)
+Date: Mon, 09 Nov 2026 10:00:00 +0100
+Message-ID: <642126121931603567@corpus.vortexmail.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+<p>Bonjour</p><video poster="https://tracker.example.invalid/u123/poster"></video>

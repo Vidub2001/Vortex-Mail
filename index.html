@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vortex Mail</title>
+    <script src="/boot.js"></script>
+    <style>
+      /* Squelette aux couleurs du thème (lot E2) : la fenêtre n'est jamais blanche
+         pendant que l'interface se charge ; React le remplace au premier affichage.
+         Couleurs reprises de src/theme.ts (Background3, Background2, bleu du logo). */
+      html {
+        --boot-back: #eceff3;
+        --boot-pane: #f6f7f9;
+        --boot-bar: #1e88e5;
+        background: var(--boot-back);
+      }
+      @media (prefers-color-scheme: dark) {
+        html:not([data-boot="light"]) {
+          --boot-back: #121316;
+          --boot-pane: #18191c;
+          --boot-bar: #1a76c7;
+        }
+      }
+      html[data-boot="dark"] {
+        --boot-back: #121316;
+        --boot-pane: #18191c;
+        --boot-bar: #1a76c7;
+      }
+      .boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        grid-template-rows: 48px 1fr;
+        grid-template-columns: 250px 1fr;
+      }
+      .boot-top {
+        grid-column: 1 / -1;
+        background: var(--boot-bar);
+      }
+      .boot-pane {
+        background: var(--boot-pane);
+      }
+      html[data-boot-view] .boot {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"><div class="boot" aria-hidden="true"><div class="boot-top"></div><div class="boot-pane"></div></div></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

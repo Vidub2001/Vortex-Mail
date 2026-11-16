@@ -1,0 +1,14 @@
+[package]
+name = "imap-lite"
+version = "0.1.0"
+edition = "2021"
+# Version minimale de Rust : la même que l'application (mail-parser 1.0 l'exige).
+rust-version = "1.100"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Client IMAP4rev1 minimal et synchrone, sans dépendance, au-dessus de n'importe quel flux Read + Write"
+
+[dependencies]
+
+[lints]
+workspace = true

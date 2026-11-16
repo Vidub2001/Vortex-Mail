@@ -1,0 +1,131 @@
+# cargo-deny — failles connues, licences, doublons et provenance des crates.
+# Lancé par `make deny` (inclus dans `make audit`).
+
+[graph]
+# Plateformes réellement livrées : Linux (deb, AppImage) et Windows (NSIS).
+targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+all-features = false
+
+[advisories]
+# Toute faille, crate abandonnée ou défaut de sûreté connu est bloquant, sauf
+# s'il figure dans le bloc ci-dessous avec une raison.
+ignore = [
+    # >>> acceptés temporairement (généré par `make audit-baseline` ; les raisons peuvent être réécrites)
+    # unmaintained — proc-macro-error : proc-macro-error is unmaintained
+    { id = "RUSTSEC-2024-0370", reason = "abandonnée, tirée par gtk-rs (Tauri sous Linux) ; macro de compilation, sans effet à l'exécution" },
+    # unmaintained — zvariant : `zvariant` is unmaintained
+    { id = "RUSTSEC-2026-0370", reason = "abandonnée, tirée par zbus (trousseau secret-service, notifications) ; à suivre" },
+    # unmaintained — zbus_names : `zbus_names` is unmaintained
+    { id = "RUSTSEC-2026-0371", reason = "abandonnée, tirée par zbus (trousseau secret-service, notifications) ; à suivre" },
+    # unmaintained — zvariant_derive : `zvariant_derive` is unmaintained
+    { id = "RUSTSEC-2026-0372", reason = "abandonnée, tirée par zbus (trousseau secret-service, notifications) ; à suivre" },
+    # vulnerability — sqlcipher-src : SQLite < 3.54.0, mémoire non initialisée avec un fichier -wal piégé
+    { id = "RUSTSEC-2026-0502", reason = "SQLCipher du cache chiffré (lot G4) : libsqlite3-sys 0.39.1 impose sqlcipher-src =419.0.6 (SQLite 3.53.4). Il faudrait qu'un tiers écrive cache.sqlite et son -wal dans le dossier du profil, donc qu'il ait déjà le compte de l'utilisateur (hors modèle de menace), et chiffrés avec la clé du trousseau. À retirer dès qu'une version de libsqlite3-sys tire sqlcipher-src 420 ou plus" },
+    # <<< acceptés temporairement
+]
+
+[licenses]
+# Vortex Mail est sous licence GPL-3.0-or-later : seules des licences compatibles
+# avec la GPLv3 sont admises (Apache-2.0 l'est avec la v3, pas avec la v2).
+# Liste ajustée aux licences réellement rencontrées (Linux et Windows).
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "0BSD",
+    "Zlib",
+    "Unlicense",
+    "CC0-1.0",
+    "Unicode-3.0",
+    # Licence de Vortex Mail lui-même (crates du dépôt).
+    "GPL-3.0-or-later",
+    # Copyleft au niveau du fichier, compatible avec la GPL (cssparser, selectors,
+    # dtoa-short, option-ext).
+    "MPL-2.0",
+    # Permissive, équivalente à MIT, compatible avec la GPL (libloading, qui
+    # charge libayatana-appindicator pour la zone de notification, lot B3).
+    "ISC",
+]
+confidence-threshold = 0.9
+
+# sqlcipher-src (SQLCipher du cache chiffré, lot G4) : SQLite est sous la
+# « blessing » (domaine public) et libtomcrypt, livré avec mais compilé seulement
+# pour WebAssembly, sous WTFPL ou domaine public ; toutes deux compatibles avec la GPL.
+[[licenses.exceptions]]
+crate = "sqlcipher-src"
+allow = ["blessing", "WTFPL"]
+
+[bans]
+# Une crate en plusieurs versions est signalée sans bloquer. Les doublons
+# ci-dessous sont connus : tous viennent de dépendances indirectes et ne se
+# suppriment qu'avec une nouvelle version de celles-ci. Seule la version la plus
+# ancienne est listée ; un nouveau doublon reste signalé, et une entrée devenue
+# inutile après une mise à jour aussi (à retirer alors).
+multiple-versions = "warn"
+skip = [
+    # Tauri sous Linux : pile gtk-rs 0.18 (webkit2gtk, javascriptcore, glib, gtk3).
+    { crate = "bitflags@1.3.2", reason = "webkit2gtk et javascriptcore (Tauri sous Linux)" },
+    { crate = "heck@0.4.1", reason = "glib-macros (Tauri sous Linux)" },
+    { crate = "proc-macro-crate@1.3.1", reason = "gtk3-macros (Tauri sous Linux)" },
+    { crate = "proc-macro-crate@2.0.2", reason = "glib-macros (Tauri sous Linux)" },
+    { crate = "syn@1.0.109", reason = "proc-macro-error, tirée par gtk-rs (Tauri sous Linux)" },
+    { crate = "syn@2.0.119", reason = "macros de Tauri, gtk-rs, jiff et openssl ; syn 3 arrive progressivement" },
+    { crate = "thiserror@1.0.69", reason = "glib, gio et cairo-rs (Tauri sous Linux)" },
+    { crate = "thiserror-impl@1.0.69", reason = "thiserror 1 (Tauri sous Linux)" },
+    { crate = "toml@0.8.2", reason = "system-deps, compilation de gtk-rs (Tauri sous Linux)" },
+    { crate = "toml_datetime@0.6.3", reason = "toml 0.8 et proc-macro-crate 1 et 2 (Tauri sous Linux)" },
+    { crate = "toml_edit@0.19.15", reason = "proc-macro-crate 1 (Tauri sous Linux)" },
+    { crate = "toml_edit@0.20.2", reason = "proc-macro-crate 2 et toml 0.8 (Tauri sous Linux)" },
+    { crate = "serde_spanned@0.6.9", reason = "toml 0.8 (Tauri sous Linux)" },
+    { crate = "winnow@0.5.40", reason = "toml_edit 0.19 et 0.20 (Tauri sous Linux)" },
+
+    # Lecteur HTML de Tauri (tauri-utils et wry, via dom_query : html5ever 0.39)
+    # face à ammonia, le nettoyeur HTML de Vortex Mail (html5ever 0.40). On ne
+    # rétrograde pas ammonia, composant de sécurité, pour s'aligner.
+    { crate = "html5ever@0.39.0", reason = "dom_query (tauri-utils, wry) ; ammonia utilise la 0.40" },
+    # Deux générations des crates de hachage RustCrypto : la 0.10 (digest) par le
+    # trousseau secret-service, tauri-codegen et wry ; la 0.11 par la vérification
+    # S/MIME (vortex-smime : rsa, p256, p384, lot D1). Elles se rejoindront quand ces
+    # dépendances passeront à digest 0.11.
+    { crate = "block-buffer@0.10.4", reason = "digest 0.10 (secret-service, tauri-codegen, wry) ; S/MIME en 0.11" },
+    { crate = "crypto-common@0.1.7", reason = "digest 0.10 (secret-service, tauri-codegen, wry) ; S/MIME en 0.11" },
+    { crate = "digest@0.10.7", reason = "sha2 0.10 et hmac 0.12 (secret-service, tauri-codegen, wry) ; S/MIME en 0.11" },
+    { crate = "hmac@0.12.1", reason = "hkdf 0.12 (secret-service) ; S/MIME (rsa, rfc6979) en 0.13" },
+    { crate = "hkdf@0.12.4", reason = "secret-service (trousseau) ; S/MIME en 0.13 (ECDH de p256 et p384, lot G2b)" },
+    { crate = "sha2@0.10.9", reason = "secret-service, tauri-codegen et wry ; S/MIME (vortex-smime) en 0.11" },
+    # Deux générations des chiffrements RustCrypto : la 0.8 d'aes (cipher 0.4) par le
+    # trousseau secret-service ; la 0.9 (cipher 0.5) par la lecture des fichiers .p12 (p12-keystore, lot D2).
+    { crate = "aes@0.8.4", reason = "secret-service ; .p12 (p12-keystore, lot D2) en 0.9" },
+    { crate = "block-padding@0.3.3", reason = "secret-service ; .p12 (p12-keystore, lot D2) en 0.4" },
+    { crate = "cbc@0.1.2", reason = "secret-service ; .p12 (p12-keystore, lot D2) en 0.2" },
+    { crate = "cipher@0.4.4", reason = "aes 0.8 et cbc 0.1 (secret-service) ; .p12 (p12-keystore, lot D2) en 0.5" },
+    { crate = "inout@0.1.4", reason = "cipher 0.4 (secret-service) ; .p12 (p12-keystore, lot D2) en 0.2" },
+    { crate = "synstructure@0.13.2", reason = "asn1-rs-derive (x509-parser, via p12-keystore, lot D2) ; yoke et zerofrom en 0.14" },
+    { crate = "markup5ever@0.39.0", reason = "html5ever 0.39 (Tauri) ; ammonia utilise la 0.40" },
+    { crate = "web_atoms@0.2.6", reason = "markup5ever 0.39 (Tauri) ; ammonia utilise la 0.3" },
+    { crate = "cssparser@0.37.0", reason = "dom_query et selectors (Tauri) ; ammonia utilise la 0.38" },
+    { crate = "string_cache@0.9.0", reason = "web_atoms 0.2 (Tauri)" },
+    { crate = "string_cache_codegen@0.6.1", reason = "web_atoms 0.2 (Tauri)" },
+    { crate = "phf@0.13.1", reason = "tauri-utils, cssparser 0.37, selectors ; ammonia passe par la 0.14" },
+    { crate = "phf_codegen@0.13.1", reason = "selectors et web_atoms 0.2 (Tauri)" },
+    { crate = "phf_generator@0.13.1", reason = "phf_codegen 0.13 (Tauri)" },
+    { crate = "phf_shared@0.13.1", reason = "phf 0.13 (Tauri)" },
+
+    # Autres dépendances indirectes.
+    { crate = "getrandom@0.2.17", reason = "rand_core 0.6 (trousseau secret-service sous Linux) ; Vortex Mail l'utilise aussi (lot 5)" },
+    { crate = "getrandom@0.3.4", reason = "tauri" },
+    { crate = "cpufeatures@0.2.17", reason = "sha2, sha1 et aes (trousseau) ; chacha20 utilise la 0.3" },
+    { crate = "miniz_oxide@0.8.9", reason = "png, icônes de Tauri ; flate2 utilise la 0.9" },
+    { crate = "hashbrown@0.12.3", reason = "indexmap 1, via schemars 0.8 (tauri-build)" },
+    { crate = "indexmap@1.9.3", reason = "schemars 0.8 (tauri-build) et serde_with" },
+    { crate = "windows-sys@0.60.2", reason = "keyring sous Windows ; le reste utilise la 0.61" },
+]
+# Les crates du dépôt se référencent par chemin, sans numéro de version.
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

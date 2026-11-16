@@ -1,0 +1,10 @@
+From: "Expéditeur de test" <attaquant@example.invalid>
+To: victime@example.invalid
+Subject: Message (image sur le réseau local)
+Date: Mon, 09 Nov 2026 10:00:00 +0100
+Message-ID: <6833430542680508661@corpus.vortexmail.invalid>
+MIME-Version: 1.0
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+<p>Bonjour</p><img src="http://192.168.1.1/admin/corpus.png"><img src="http://169.254.169.254/latest/meta-data/">

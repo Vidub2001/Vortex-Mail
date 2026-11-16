@@ -1,0 +1,163 @@
+# Cibles de fuzzing (lot 8 de docs/plan-lots.md) : les lecteurs de ce qui
+# arrive de l'extérieur (serveurs IMAP, CalDAV/CardDAV, Outlook.com, Google ;
+# messages, invitations, cartes de visite reçus).
+#
+# Hors de l'espace de travail principal : il faut Rust nightly et cargo-fuzz.
+#   cargo +nightly fuzz list
+#   scripts/fuzz.sh 60              (toutes les cibles, 60 s chacune)
+# Mode d'emploi : fuzz/README.md.
+[package]
+name = "vortexmail-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+imap-lite = { path = "../crates/imap-lite" }
+vortexmail = { path = "../src-tauri" }
+vortex-smime = { path = "../crates/smime" }
+
+# Espace de travail à part : pas membre de celui de la racine.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "imap_session"
+path = "fuzz_targets/imap_session.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "imap_response"
+path = "fuzz_targets/imap_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "imap_date"
+path = "fuzz_targets/imap_date.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mime"
+path = "fuzz_targets/mime.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "html"
+path = "fuzz_targets/html.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ical"
+path = "fuzz_targets/ical.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vcard"
+path = "fuzz_targets/vcard.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "json"
+path = "fuzz_targets/json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dav_xml"
+path = "fuzz_targets/dav_xml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http"
+path = "fuzz_targets/http.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smtp"
+path = "fuzz_targets/smtp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "backup"
+path = "fuzz_targets/backup.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oauth"
+path = "fuzz_targets/oauth.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "headers"
+path = "fuzz_targets/headers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mbox"
+path = "fuzz_targets/mbox.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "url"
+path = "fuzz_targets/url.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smime_verify"
+path = "fuzz_targets/smime_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smime_decrypt"
+path = "fuzz_targets/smime_decrypt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "smime_cert"
+path = "fuzz_targets/smime_cert.rs"
+test = false
+doc = false
+bench = false

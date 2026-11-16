@@ -1,0 +1,37 @@
+From: "Expéditeur de test" <attaquant@example.invalid>
+To: victime@example.invalid
+Subject: Invitation (une seule occurrence d'une série)
+Date: Mon, 09 Nov 2026 10:00:00 +0100
+Message-ID: <565333522710775464@corpus.vortexmail.invalid>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="CORPUS"
+
+--CORPUS
+Content-Type: text/plain; charset="utf-8"
+
+Invitation de test du corpus Vortex Mail.
+
+--CORPUS
+Content-Type: text/calendar; charset="utf-8"; method=REQUEST
+Content-Transfer-Encoding: base64
+
+QkVHSU46VkNBTEVOREFSDQpWRVJTSU9OOjIuMA0KUFJPRElEOi0vL0NvcnB1cyBWb3J0ZXggTWFp
+bC8vRlINCk1FVEhPRDpSRVFVRVNUDQpCRUdJTjpWRVZFTlQNClVJRDpzZXJpZS1jb3JwdXNAdm9y
+dGV4bWFpbC5pbnZhbGlkDQpEVFNUQU1QOjIwMjYxMTA5VDA5MDAwMFoNClJFQ1VSUkVOQ0UtSUQ7
+VFpJRD1FdXJvcGUvUGFyaXM6MjAyNjExMTZUMDkwMDAwDQpEVFNUQVJUO1RaSUQ9RXVyb3BlL1Bh
+cmlzOjIwMjYxMTEzVDA5MDAwMA0KRFRFTkQ7VFpJRD1FdXJvcGUvUGFyaXM6MjAyNjExMTNUMTAw
+MDAwDQpTVU1NQVJZOk9jY3VycmVuY2UgZMOpcGxhY8OpZQ0KT1JHQU5JWkVSOm1haWx0bzpvcmdh
+bmlzYXRldXJAZXhhbXBsZS5pbnZhbGlkDQpFTkQ6VkVWRU5UDQpFTkQ6VkNBTEVOREFSDQo=
+--CORPUS
+Content-Type: application/ics; name="invite.ics"
+Content-Disposition: attachment; filename="invite.ics"
+Content-Transfer-Encoding: base64
+
+QkVHSU46VkNBTEVOREFSDQpWRVJTSU9OOjIuMA0KUFJPRElEOi0vL0NvcnB1cyBWb3J0ZXggTWFp
+bC8vRlINCk1FVEhPRDpSRVFVRVNUDQpCRUdJTjpWRVZFTlQNClVJRDpzZXJpZS1jb3JwdXNAdm9y
+dGV4bWFpbC5pbnZhbGlkDQpEVFNUQU1QOjIwMjYxMTA5VDA5MDAwMFoNClJFQ1VSUkVOQ0UtSUQ7
+VFpJRD1FdXJvcGUvUGFyaXM6MjAyNjExMTZUMDkwMDAwDQpEVFNUQVJUO1RaSUQ9RXVyb3BlL1Bh
+cmlzOjIwMjYxMTEzVDA5MDAwMA0KRFRFTkQ7VFpJRD1FdXJvcGUvUGFyaXM6MjAyNjExMTNUMTAw
+MDAwDQpTVU1NQVJZOk9jY3VycmVuY2UgZMOpcGxhY8OpZQ0KT1JHQU5JWkVSOm1haWx0bzpvcmdh
+bmlzYXRldXJAZXhhbXBsZS5pbnZhbGlkDQpFTkQ6VkVWRU5UDQpFTkQ6VkNBTEVOREFSDQo=
+--CORPUS--

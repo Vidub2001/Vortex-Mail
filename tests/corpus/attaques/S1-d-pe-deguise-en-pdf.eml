@@ -1,0 +1,22 @@
+From: "Expéditeur de test" <attaquant@example.invalid>
+To: victime@example.invalid
+Subject: Facture PDF (en réalité un exécutable)
+Date: Mon, 09 Nov 2026 10:00:00 +0100
+Message-ID: <6365300646167462494@corpus.vortexmail.invalid>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="CORPUS"
+
+--CORPUS
+Content-Type: text/plain; charset="utf-8"
+
+Pièce jointe de test du corpus Vortex Mail. Contenu inerte.
+
+--CORPUS
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="facture.pdf"
+Content-Transfer-Encoding: base64
+
+TVqQAAMAAAAEAAAA//8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAQAAAAFBFAAAgY29ycHVzIFZvcnRleCBNYWlsLCBlbnRldGUgUEUgZmFjdGljZSBzYW5zIGNv
+ZGUK
+--CORPUS--

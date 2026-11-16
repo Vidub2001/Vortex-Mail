@@ -1,0 +1,15 @@
+Authentication-Results: mx.mailo.com;
+	dkim=none (message not signed);
+	spf=fail (mailo.com: 203.0.113.7 is not allowed to send for banque.example) smtp.mailfrom=banque.example;
+	dmarc=fail (p=reject dis=none) header.from=banque.example
+Received: from mail.pirate.example (mail.pirate.example [203.0.113.7]) by mx.mailo.com
+Authentication-Results: mx.mailo.com; dkim=pass header.d=banque.example; spf=pass smtp.mailfrom=banque.example; dmarc=pass header.from=banque.example
+From: Banque Exemple <securite@banque.example>
+To: moi@exemple.fr
+Subject: Action requise : verifiez votre compte
+Date: Sat, 14 Nov 2026 09:00:00 +0100
+Message-ID: <g1-usurpe@pirate.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Votre compte sera suspendu sous 24 h. Confirmez vos identifiants.

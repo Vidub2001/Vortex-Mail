@@ -1,0 +1,64 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/mail-core", "crates/imap-lite", "crates/smime"]
+
+# En mode dev, les dépendances sont optimisées (app fluide)
+# sans ralentir la recompilation de notre propre code.
+[profile.dev.package."*"]
+opt-level = 2
+
+# Règles de code communes aux crates du dépôt (lot 10, d'après BeautifulRust :
+# lints/lints.toml, https://github.com/morganlinton/BeautifulRust). Toutes en
+# avertissement ici ; `make audit` les rend bloquantes (-D warnings). Une
+# exception s'écrit au plus près du code, avec sa raison :
+#   #[expect(clippy::…, reason = "…")]
+# `expect` signale l'exception devenue inutile, contrairement à `allow`.
+[workspace.lints.rust]
+rust_2018_idioms = { level = "warn", priority = -1 }
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+# Tout élément public est documenté (lot 10c).
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Écartées : du bruit pour une application (BeautifulRust les écarte aussi).
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+module_inception = "allow"
+enum_glob_use = "allow"
+# Écartée : exhaustive_enums vise les bibliothèques publiées, pas une application.
+# Paniques et erreurs (unwrap admis dans les tests : clippy.toml).
+unwrap_used = "warn"
+panic_in_result_fn = "warn"
+missing_panics_doc = "warn"
+missing_errors_doc = "warn"
+missing_assert_message = "warn"
+# Exceptions : #[expect] avec sa raison.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# unsafe : un seul endroit, l'appel au résolveur DNS de Windows (src-tauri/src/dns.rs,
+# module win, lot G3b) ; une opération par bloc, chacune avec son « SAFETY: ».
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+# Forme des API.
+fn_params_excessive_bools = "warn"
+struct_excessive_bools = "warn"
+clone_on_ref_ptr = "warn"
+redundant_clone = "warn"
+rc_buffer = "warn"
+# Idiomes et restes de mise au point.
+string_add = "warn"
+wildcard_imports = "warn"
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+# Le journal passe par src-tauri/src/diag.rs, qui nettoie les messages (lot 10c).
+print_stderr = "warn"
+# Conversions.
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+# Pas de `as` : From, try_from, ou #[expect] avec sa raison (lot 10c).
+as_conversions = "warn"

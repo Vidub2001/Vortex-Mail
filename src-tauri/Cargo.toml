@@ -1,0 +1,86 @@
+[package]
+name = "vortexmail"
+version = "0.2.1"
+description = "Client mail multi-comptes IMAP, avec agenda et contacts"
+edition = "2021"
+# Version minimale de Rust : celle qu'exige mail-parser 1.0.
+rust-version = "1.100"
+license = "GPL-3.0-or-later"
+publish = false
+
+[lib]
+# Le suffixe _lib évite un conflit de nom avec le binaire.
+name = "vortexmail_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# tray-icon : zone de notification (lot B3).
+tauri = { version = "2", features = ["tray-icon"] }
+# Une seule instance : relancer l'application montre la fenêtre existante (lot B3).
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Source aléatoire du système, sur toutes les plateformes (lot 5, relecture C6).
+getrandom = "0.2"
+# Fuseaux horaires des rendez-vous (VTIMEZONE, lot 6) : base du système,
+# copie embarquée sous Windows.
+jiff = "0.2"
+# TLS via OpenSSL (libssl-dev, déjà installé) : certificats du système.
+native-tls = "0.2"
+# Décodage MIME : encodages, jeux de caractères, multipart, en-têtes RFC 2047.
+# full_encoding : jeux de caractères asiatiques, KOI8… (activé par défaut jusqu'à la 0.9).
+# 1.0 : plafonds réglés dans mimeparse.rs ; contient du code unsafe audité (SIMD, UTF-8).
+mail-parser = { version = "1", features = ["full_encoding"] }
+# Cache local : SQLite compilé avec l'application (aucune dépendance système).
+# 0.41 : SQLite 3.54 embarqué (corrige RUSTSEC-2026-0459 / CVE-2026-119375).
+# Demande Rust 1.89 ou plus récent.
+rusqlite = { version = "0.41", features = ["bundled"] }
+# Ouverture des pièces jointes et des liens sans interpréteur de commandes
+# (ShellExecuteW sous Windows, xdg-open ailleurs).
+opener = { version = "0.8", default-features = false }
+# Type réel d'une pièce jointe d'après ses premiers octets.
+infer = "0.22"
+# Nettoyage du HTML des messages par liste blanche (citations, brouillons).
+ammonia = "4"
+mail-core = { path = "../crates/mail-core", features = ["serde"] }
+imap-lite = { path = "../crates/imap-lite" }
+# Vérification des signatures S/MIME (lot D1), reprise de MailCraft (MIT OR Apache-2.0).
+vortex-smime = { path = "../crates/smime" }
+
+# Trousseau du système, propre à chaque plateforme. Sans ces options, keyring
+# utiliserait un stockage factice en mémoire (mots de passe perdus à la fermeture).
+# Cache chiffré par SQLCipher (lot G4), avec la cryptographie du système quand il
+# en a une : sous Linux, le libcrypto du système (libssl-dev), le même que
+# native-tls (un OpenSSL compilé avec l'application remplacerait aussi celui des
+# connexions, et ses mises à jour ne viendraient plus de la distribution) ; sous
+# macOS, CommonCrypto ; sous Windows, qui n'en fournit pas à SQLCipher, OpenSSL
+# compilé avec l'application (Perl nécessaire), native-tls passant par schannel.
+[target.'cfg(target_os = "linux")'.dependencies]
+rusqlite = { version = "0.41", features = ["bundled-sqlcipher"] }
+# Secret Service : GNOME Keyring, KWallet.
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+
+[target.'cfg(windows)'.dependencies]
+rusqlite = { version = "0.41", features = ["bundled-sqlcipher-vendored-openssl"] }
+# Gestionnaire d'identification de Windows.
+keyring = { version = "3", features = ["windows-native"] }
+# Autorités de confiance du magasin de Windows, pour les signatures S/MIME (lot D1) ;
+# déjà tirée par native-tls.
+schannel = "0.1.30"
+# Résolveur DNS de Windows (DnsQuery_W) pour la découverte WebDAV (lot G3b) ;
+# version déjà tirée par Tauri.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_Dns"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rusqlite = { version = "0.41", features = ["bundled-sqlcipher"] }
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+# Notifications du bureau (sous Linux : notify-send).
+tauri-plugin-notification = "2"
+
+[lints]
+workspace = true

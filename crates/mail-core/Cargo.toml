@@ -1,0 +1,19 @@
+[package]
+name = "mail-core"
+version = "0.1.0"
+edition = "2021"
+# Version minimale de Rust : la même que l'application (mail-parser 1.0 l'exige).
+rust-version = "1.100"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Cœur métier de Vortex Mail : comptes, dossiers, messages, déplacement inter-comptes"
+
+[features]
+# Active la (dé)sérialisation JSON des types, utilisée par la couche Tauri.
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+
+[lints]
+workspace = true

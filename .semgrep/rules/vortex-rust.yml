@@ -1,0 +1,64 @@
+# Règles Semgrep maison — code Rust.
+# Chaque règle vient d'un finding de la relecture du 5 novembre 2026.
+# Tests : make semgrep-test (fichier vortex-rust.rs à côté).
+rules:
+  - id: vortex-shell-command
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      Lancement d'un interpréteur de commandes ($PROG). Un nom de fichier ou un
+      argument venant d'un mail peut y devenir une commande (relecture S1).
+      Ouvrir les fichiers sans shell (ShellExecuteW, crate opener).
+    metadata:
+      relecture: S1
+      lot: 2
+    patterns:
+      - pattern-either:
+          - pattern: std::process::Command::new($PROG)
+          - pattern: Command::new($PROG)
+      - metavariable-regex:
+          metavariable: $PROG
+          regex: '^r?"(?i:(.*[/\\])?(cmd|cmd\.exe|powershell|powershell\.exe|pwsh|pwsh\.exe|wscript|wscript\.exe|cscript|cscript\.exe|mshta|mshta\.exe|sh|bash|zsh|dash|ksh|fish|csh|tcsh|env))"$'
+
+  - id: vortex-extension-denylist
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      Liste noire d'extensions exécutables. Elle est toujours incomplète (.hta,
+      .lnk…) et se contourne par un point final (relecture S1). Utiliser une
+      liste blanche des types ouverts directement.
+    metadata:
+      relecture: S1
+      lot: 2
+    pattern-regex: '"\.(?i:exe|bat|cmd|scr|hta)"'
+
+  - id: vortex-auth-redirect
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      Les en-têtes de l'appelant (dont Authorization) sont renvoyés tels quels
+      après une redirection, y compris vers un autre hôte ou en http (relecture
+      A1). Retirer Authorization quand le schéma, l'hôte ou le port change.
+    metadata:
+      relecture: A1
+      lot: 5
+    # Repère la boucle de redirection de http::send : envoi avec les mêmes
+    # `headers`, puis suivi de Location.
+    pattern-regex: '(?s)send_once\(\s*&method,\s*&current,\s*headers\b.{0,600}?resolve\(\s*&current'
+
+  - id: vortex-notify-send-args
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      notify-send reçoit l'expéditeur et l'objet d'un mail : sans `--` ni
+      échappement, un nom comme `--help` ou du balisage <a> passe en option ou
+      en lien (relecture S5). Construire les arguments avec
+      `idle::notify_send_args`, qui ajoute `--` et échappe le texte.
+    metadata:
+      relecture: S5
+      lot: 5
+    # Tout appel à notify-send dont les arguments ne viennent pas de
+    # notify_send_args (testée dans idle.rs).
+    patterns:
+      - pattern-regex: 'Command::new\("notify-send"\)'
+      - pattern-not-regex: 'Command::new\("notify-send"\)\s*\.args\(\s*notify_send_args\('

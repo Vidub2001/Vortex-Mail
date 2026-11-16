@@ -1,0 +1,14 @@
+vortex-smime (Vortex Mail, crates/smime)
+
+Ce code est repris de MailCraft (https://github.com/UCS-Care-Group/mailcraft), crate
+mailcraft-smime, avec le lecteur BER et le résultat d'une vérification de mailcraft-model et la
+lecture des messages signés de mailcraft-mime :
+
+  MailCraft
+  Copyright (c) 2026 the MailCraft contributors.
+  Licensed under the MIT License or the Apache License, Version 2.0, at your option
+  (LICENSE-MIT, LICENSE-APACHE).
+
+Les modifications de Vortex Mail (parts.rs, signature.rs, lib.rs, et les chemins des modules)
+sont publiées sous les mêmes licences, au choix : MIT ou Apache 2.0. Le reste de Vortex Mail est
+sous GPL 3.0 ou ultérieure ; les deux licences de cette crate le permettent.

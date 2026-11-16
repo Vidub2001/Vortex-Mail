@@ -1,0 +1,12 @@
+BEGIN:VCARD
+VERSION:3.0
+UID:abc
+FN:Marie Dupont
+N:Dupont;Marie;;;
+item1.EMAIL;TYPE=WORK:marie@example.com
+TEL;TYPE=CELL:tel:+33 6
+ORG:ACME\, SA;Ventes
+NOTE:L1\nL2
+PHOTO;ENCODING=b:QUJD
+ DEF
+END:VCARD
