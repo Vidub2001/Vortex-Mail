@@ -52,7 +52,7 @@ Les versions sont construites à partir de ce dépôt par GitHub Actions. Chacun
 
 Les fichiers Windows ne sont pas encore signés : Windows peut afficher un avertissement à la première installation.
 
-> **État :** version 0.2.2, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
+> **État :** version 0.2.3, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
 
 ## Fonctionnalités
 
@@ -126,7 +126,7 @@ Les fichiers Windows ne sont pas encore signés : Windows peut afficher un avert
 - Contrôles automatiques avant chaque fusion (`make audit`) : dépendances (cargo-deny, npm audit),
   règles Semgrep tirées des relectures, Clippy strict avec les règles du projet, mise en forme,
   tests (dont parcours de l'interface dans Chromium) et corpus de mails piégés ; fuzzing des lecteurs (MIME, IMAP, HTML, iCalendar, réponses
-  réseau…). Voir [docs/MODELE-MENACE.md](docs/MODELE-MENACE.md) et [docs/AUDIT.md](docs/AUDIT.md).
+  réseau…). Voir le [modèle de menace](docs/MODELE-MENACE.md), les [contrôles](docs/AUDIT.md) et le [fuzzing](fuzz/README.md).
 
 </details>
 
@@ -240,9 +240,8 @@ src/                     interface React + Fluent UI
   rules.ts               règles de classement
   calendar.ts, recurrence.ts, reminders.ts  agenda : occurrences, répétitions, rappels
   components/            volets, listes, rédaction, agenda, contacts, paramètres
-docs/COMPILATION.md      compilation sous Linux et Windows
-docs/AUDIT.md            contrôles (make audit) ; MODELE-MENACE.md : modèle de menace
-docs/plan-lots.md        plan des lots de corrections et d'évolutions
+docs/COMPILATION*.md     compilation sous Linux et Windows (français, anglais, espagnol)
+docs/AUDIT*.md           contrôles (make audit) ; MODELE-MENACE*.md : modèle de menace
 fuzz/, tests/            fuzzing, corpus de non-régression, tests de l'interface
 ```
 

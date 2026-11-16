@@ -1,5 +1,7 @@
 # Compiler Vortex Mail
 
+**Français** · [English](COMPILATION.en.md) · [Español](COMPILATION.es.md)
+
 Ce guide explique comment compiler Vortex Mail à partir des sources, sous **Linux** (Ubuntu / Debian)
 et sous **Windows 10 / 11**, puis comment produire un installateur.
 
@@ -241,7 +243,7 @@ L'installateur, en français, installe Vortex Mail **pour l'utilisateur courant,
 administrateur** (raccourcis du bureau et du menu Démarrer, désinstallation depuis « Applications
 installées »).
 
-Le programme n'étant pas signé, Windows SmartScreen affiche « Éditeur inconnu » au premier
+Tant que le programme n'est pas signé, Windows SmartScreen affiche « Éditeur inconnu » au premier
 lancement : « Informations complémentaires » → « Exécuter quand même ».
 
 Mode développement, comme sous Linux : `npm run tauri dev`.
@@ -334,7 +336,7 @@ npm install
 npm run tauri build -- --bundles nsis
 ```
 
-Vérifiez que `git log` affiche bien le dernier commit poussé depuis Linux : si `git pull` a échoué
+Vérifiez que `git log` affiche bien le dernier commit : si `git pull` a échoué
 (identification, fichier modifié localement), la compilation produit l'**ancienne** version.
 
 Puis lancer le nouveau `setup.exe` : il remplace l'ancienne version et conserve la configuration.

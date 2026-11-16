@@ -12,7 +12,7 @@ Free desktop email client for Linux and Windows, built with Rust and Tauri.
 ![Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0b2545)
 ![Rust | Tauri 2](https://img.shields.io/badge/Rust-Tauri%202-ef5a5f)
 
-[**Download**](https://github.com/Vidub2001/Vortex-Mail/releases/latest) · [Website](https://vortexmail.fr) · [Build guide](docs/COMPILATION.md) · [Threat model](docs/MODELE-MENACE.md)
+[**Download**](https://github.com/Vidub2001/Vortex-Mail/releases/latest) · [Website](https://vortexmail.fr) · [Build guide](docs/COMPILATION.en.md) · [Threat model](docs/MODELE-MENACE.en.md)
 
 [Français](README.fr.md) · **English** · [Español](README.es.md)
 
@@ -52,7 +52,7 @@ Releases are built from this repository by GitHub Actions. Each one comes with `
 
 Windows files are not signed yet, so Windows may show a warning on first install.
 
-> **Status:** version 0.2.2, used every day by its author. Feedback and bug reports are welcome.
+> **Status:** version 0.2.3, used every day by its author. Feedback and bug reports are welcome.
 
 ## Features
 
@@ -119,8 +119,8 @@ Windows files are not signed yet, so Windows may show a warning on first install
 - Automated checks before every merge (`make audit`): dependencies (cargo-deny, npm audit), Semgrep
   rules drawn from the code reviews, strict Clippy with the project's rules, formatting, tests (including
   interface walkthroughs in Chromium) and a corpus of booby-trapped mails; fuzzing of the parsers (MIME, IMAP, HTML, iCalendar, network
-  responses…). See [docs/MODELE-MENACE.md](docs/MODELE-MENACE.md) and [docs/AUDIT.md](docs/AUDIT.md)
-  (in French).
+  responses…). See the [threat model](docs/MODELE-MENACE.en.md), the [checks](docs/AUDIT.en.md)
+  and [fuzzing](fuzz/README.en.md).
 
 </details>
 
@@ -151,11 +151,11 @@ Tests and checks:
 cargo test --workspace   # Rust: core logic, IMAP against a fake server, application
 npm test                 # interface: calendar, links, rules, reminders
 make ui-test             # interface walkthroughs in Chromium (npx playwright install chromium)
-make audit               # every check (see docs/AUDIT.md)
+make audit               # every check (see docs/AUDIT.en.md)
 ```
 
 Release builds, installers, the Windows portable ZIP and troubleshooting are covered in
-**[docs/COMPILATION.md](docs/COMPILATION.md)** (in French).
+**[docs/COMPILATION.en.md](docs/COMPILATION.en.md)**.
 
 ## Adding an account
 
@@ -230,9 +230,8 @@ src/                     React + Fluent UI interface
   rules.ts               mail rules
   calendar.ts, recurrence.ts, reminders.ts  calendar: occurrences, recurrence, reminders
   components/            panes, lists, compose, calendar, contacts, settings
-docs/COMPILATION.md      Linux and Windows build guide (French)
-docs/AUDIT.md            checks (make audit); MODELE-MENACE.md: threat model (French)
-docs/plan-lots.md        plan of fix and feature batches (French)
+docs/COMPILATION*.md     Linux and Windows build guide (French, English, Spanish)
+docs/AUDIT*.md           checks (make audit); MODELE-MENACE*.md: threat model
 fuzz/, tests/            fuzzing, regression corpus, interface tests
 ```
 

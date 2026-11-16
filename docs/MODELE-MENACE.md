@@ -1,10 +1,11 @@
 # Modèle de menace
 
-> **Mis à jour :** 10 novembre 2026 (lot 9e de [plan-lots.md](plan-lots.md)) · **Relu :** relecture indépendante du 10 novembre 2026 (96 affirmations vérifiées), corrections des lots 8e-1 à 8e-3
+**Français** · [English](MODELE-MENACE.en.md) · [Español](MODELE-MENACE.es.md)
+
 
 Ce que Vortex Mail protège, contre qui, et comment, avec le code qui le fait. Les contrôles automatiques sont décrits dans [AUDIT.md](AUDIT.md). Une affirmation de ce document que le code ne tient pas est un défaut : à corriger comme tel, et à ajouter au corpus (`tests/corpus/manifest.toml`).
 
-Le document sert aussi de point de départ pour les évolutions (lots B à E) : toute nouvelle entrée venue de l'extérieur doit trouver sa place dans une des sections « Adversaires » ci-dessous, avec ses plafonds, ses tests et sa cible de fuzzing.
+Le document sert aussi de point de départ pour les évolutions : toute nouvelle entrée venue de l'extérieur doit trouver sa place dans une des sections « Adversaires » ci-dessous, avec ses plafonds, ses tests et sa cible de fuzzing.
 
 ## Biens à protéger
 
@@ -70,7 +71,7 @@ Serveur IMAP, SMTP, CalDAV ou CardDAV, ou API d'O365, d'Outlook.com ou de Google
 - **JSON** (`json.rs`, lecteur maison) : imbrication de 200 au plus ; nombres vérifiés avant conversion, selon la grammaire de la RFC 8259 et finis (lot F4). Une liste d'Outlook.com s'arrête à 200 pages et 256 Mo cumulés (`o365.rs`).
 - **Serveur de jetons** (`oauth.rs`) : réponse de 1 Mo au plus.
 - **Journal** (`diag.rs`, lot 10) : un message d'erreur du serveur n'atteint le terminal qu'après remplacement des caractères de contrôle et de mise en page (séquences d'échappement, retours à la ligne, inversion d'affichage), coupé à 2 000 caractères ; c'est le seul point d'écriture du journal (`print_stderr` refusé par Clippy).
-- **Données :** un dossier renuméroté par le serveur (`UIDVALIDITY`) est relu depuis zéro ; toute action par UID (déplacement, indicateurs, suppression, reprise hors connexion) vérifie d'abord que l'`UIDVALIDITY` du serveur est celle du cache, et les actions en attente du dossier renuméroté sont effacées (lot F1), et un compte qui change de serveur perd ses actions en attente au lieu de les rejouer sur le mauvais (`cache.rs`, `router.rs`) ; sans UIDPLUS, une suppression ne purge pas les messages qu'un autre logiciel avait seulement marqués (`client.rs`, `uid_expunge`). Un envoi refait après une coupure cherche d'abord le message par son `Message-ID` (`router.rs`) ; ce cas n'a pas encore de test automatique (Y8 au corpus). Un déplacement entre comptes dont la copie est arrivée sans réponse est repris de même, sans doublon, et un nouvel essai d'envoi depuis la même fenêtre garde son `Message-ID` (lot F1).
+- **Données :** un dossier renuméroté par le serveur (`UIDVALIDITY`) est relu depuis zéro ; toute action par UID (déplacement, indicateurs, suppression, reprise hors connexion) vérifie d'abord que l'`UIDVALIDITY` du serveur est celle du cache, et les actions en attente du dossier renuméroté sont effacées (lot F1), et un compte qui change de serveur perd ses actions en attente au lieu de les rejouer sur le mauvais (`cache.rs`, `router.rs`) ; sans UIDPLUS, une suppression ne purge pas les messages qu'un autre logiciel avait seulement marqués (`client.rs`, `uid_expunge`). Un envoi refait après une coupure cherche d'abord le message par son `Message-ID` (`router.rs` ; test Y8 au corpus, lot E5). Un déplacement entre comptes dont la copie est arrivée sans réponse est repris de même, sans doublon, et un nouvel essai d'envoi depuis la même fenêtre garde son `Message-ID` (lot F1).
 - **Secrets :**
     - les identifiants WebDAV ne partent que vers les sites du compte (`dav.rs`, `Scope`) : domaine de l'adresse e-mail et serveurs saisis ou connus, en HTTPS ; en clair, seulement vers un hôte saisi en `http://`. Une adresse (`href`) ou une redirection renvoyée par le serveur hors de ces sites est refusée avant la connexion, pour les lectures comme pour les écritures (`PUT`, `DELETE` ; lot F1). Le mot de passe ne part vers un site qu'après que celui-ci l'a demandé (réponse `401` avec `WWW-Authenticate: Basic`) ;
     - le jeton d'Outlook.com ne part que vers l'adresse de l'API, même si une réponse (`@odata.nextLink`) en désigne une autre (`o365.rs`, `call_ex`) ;
@@ -93,11 +94,12 @@ Une sauvegarde, un coffre portable, une invitation ou une carte de visite enregi
 - Sauvegardes et coffre chiffrés (`crypto.rs`, sans dépendance, vérifié par les vecteurs officiels) : clé dérivée par PBKDF2-HMAC-SHA256 (600 000 itérations depuis le lot F5, comme le recommande l'OWASP ; un coffre à 200 000 est réécrit au déverrouillage ; sel aléatoire), chiffrement `ChaCha20`, puis HMAC-SHA256 du tout ; un fichier modifié ou un mauvais mot de passe est refusé avant tout déchiffrement ; le nombre d'itérations lu est borné (10 000 000).
 - Une sauvegarde n'écrit dans le trousseau que les entrées des comptes qu'elle contient, avec leur libellé habituel, et ne restaure que les réglages `vortex.*` (`backup.rs`, `screen` ; `BackupSection.tsx`), qu'elle remplace ; l'état propre à l'installation (messages déjà examinés par les règles, rappels montrés, brouillons de secours) n'est ni exporté ni repris (lot F5b).
 - Import en ordre sûr (`backup.rs`) : secrets, puis données locales remplacées d'un seul bloc, puis configuration ; les comptes absents ne sont retirés qu'à la fin. Un mot de passe absent de la sauvegarde n'efface pas celui déjà enregistré. Tests : `import_interrompu_garde_les_contacts_locaux` (`cache.rs`) et `import_sans_mot_de_passe_garde_celui_du_trousseau` (`secrets.rs`), C2 et C4 au corpus (lot E5).
+- Les messages importés (`.eml`, `.mbox`, lot E8a) sont découpés par `mbox::split` (cible de fuzzing `mbox`), fichier plafonné à 200 Mo, et déposés tels quels sur le serveur ; les agendas (`.ics`) et carnets (`.vcf`, lot E8b) importés passent par les lecteurs déjà fuzzés (`ical`, `vcard`), 20 Mo au plus.
 - Coffre portable écrit jusqu'au disque, dans un fichier temporaire renommé ensuite. La copie de secours n'est relue que si le coffre est abîmé, jamais quand il refuse le mot de passe, et elle est réécrite après un changement de mot de passe (`secrets.rs`) : l'ancien mot de passe n'ouvre plus rien.
 
 ### Les autres programmes et utilisateurs de l'ordinateur
 
-- Mots de passe et jetons de renouvellement dans le trousseau du système (Secret Service sous Linux, gestionnaire d'identifiants sous Windows), jamais dans `accounts.json` ni dans les journaux ; le jeton d'accès reste en mémoire.
+- Mots de passe et jetons de renouvellement dans le trousseau du système (Secret Service sous Linux, coffre d'identifiants de Windows), jamais dans `accounts.json` ni dans les journaux ; le jeton d'accès reste en mémoire.
 - Fichiers temporaires des pièces jointes effacés à la fermeture ; en mode portable, dossier au nom imprévisible, sans suivre de lien symbolique (voir plus haut).
 - Une déconnexion est définitive : un renouvellement de jeton qui se termine après ne réécrit rien (`auth.rs`).
 
@@ -107,6 +109,7 @@ Une sauvegarde, un coffre portable, une invitation ou une carte de visite enregi
 - Peu de dépendances sur les chemins sensibles : IMAP (`imap-lite`), JSON, XML, iCalendar, vCard, SHA-256, HMAC, PBKDF2 et `ChaCha20` sont écrits dans le dépôt, sans dépendance.
 - Crates abandonnées acceptées, avec leur raison (`deny.toml`) : `zvariant`, `zbus_names` et `zvariant_derive`, tirées par `zbus` (trousseau Secret Service, notifications), donc sur le chemin des secrets sous Linux. À suivre.
 - SQLite embarqué tenu à jour (`src-tauri/tests/sqlite_version.rs` échoue sur une version vulnérable, lancé par `make audit`).
+- Construction des versions (lot G5c) : actions GitHub épinglées par l'empreinte de leur commit (`scripts/epingler-actions.sh`), aucun jeton gardé après le checkout, `SHA256SUMS` publié avec chaque version.
 
 ## Argumentaire
 
@@ -153,11 +156,11 @@ Une sauvegarde, un coffre portable, une invitation ou une carte de visite enregi
 
 **Preuves.**
 
-- Tests, tous lancés par `make audit` (`cargo test --workspace`, puis le corpus et les tests de l'interface) : 140 tests unitaires de l'application, 16 tests d'intégration (`corpus.rs`, `permissions.rs`, `sqlite_version.rs`), 51 d'`imap-lite` (dont un faux serveur IMAP), 39 de `mail-core`, 44 de `smime` (dont deux `proptest`), 47 de l'interface.
-- Corpus de non-régression (`tests/corpus/`) : 26 mails piégés et 40 scénarios de perte de données, chacun avec son comportement attendu. `src-tauri/tests/corpus.rs` vérifie 24 des mails, `tests/frontend` les deux autres (S6-a, F7) ; chaque entrée marquée `corrige` nomme le test qui la vérifie, et `make audit` refuse une entrée sans test existant (lot 9b).
-- Fuzzing : dix-huit cibles `cargo-fuzz` (`fuzz/`, mode d'emploi dans `fuzz/README.md`) : MIME, HTML, iCalendar, vCard, XML WebDAV, JSON, dates, réponses et session IMAP complète face à un serveur qui répond n'importe quoi ; depuis le lot 9a, réponses HTTP et SMTP, sauvegardes et coffre, retour de la connexion `OAuth2`, en-têtes repris pour répondre ; depuis le lot G2, S/MIME : messages signés vérifiés, messages chiffrés déchiffrés, certificats (8 h sans plantage pour ces cinq cibles, nuit du 11 au 12 novembre 2026, de 553 millions à 1,25 milliard d'entrées). Chaque entrée qui a fait planter une cible est gardée dans `tests/corpus/fuzz/<cible>/`, rejouée par `corpus.rs` et à chaque fuzzing. Huit cibles ont tourné 8 h chacune sans plantage (nuit du 10 novembre 2026, de 40 millions à 3,9 milliards d'entrées selon la cible). La cible `mime` a trouvé deux paniques de `mail-parser` sur des `multipart` abîmés : la première, en 0.9.4, est corrigée par la 0.11.9 (lot 8f) ; la seconde, « Invalid part ID », existe encore en 0.11.9 et est rattrapée par `mimeparse.rs` (lot 8h). La cible a ensuite toléré les paniques de la crate et tenu 8 h sans autre plantage (45 millions d'entrées, 11 novembre 2026). La version 1.0 ne panique plus sur ces deux mails : depuis le lot 9e, la cible s'arrête de nouveau sur toute panique, crate comprise, et elle a tenu 8 h sans plantage avec la version 1.0 (38,2 millions d'entrées, 12 novembre 2026).
+- Tests, tous lancés par `make audit` (`cargo test --workspace`, puis le corpus et les tests de l'interface) : 176 tests de l'application (unitaires et d'intégration : `corpus.rs`, `permissions.rs`, `sqlite_version.rs`), 51 d'`imap-lite` (dont un faux serveur IMAP), 39 de `mail-core`, 44 de `smime` (dont deux `proptest`), 53 de l'interface, 12 parcours de l'interface dans Chromium (Playwright).
+- Corpus de non-régression (`tests/corpus/`) : mails piégés et scénarios de perte de données, chacun avec son comportement attendu. `src-tauri/tests/corpus.rs` vérifie les mails, `tests/frontend` ceux qui concernent l'interface ; chaque entrée marquée `corrige` nomme le test qui la vérifie, et `make audit` refuse une entrée sans test existant (lot 9b).
+- Fuzzing : cibles `cargo-fuzz` (`fuzz/`, mode d'emploi dans [fuzz/README.md](../fuzz/README.md)) : MIME, HTML, iCalendar, vCard, XML WebDAV, JSON, dates, réponses et session IMAP complète face à un serveur qui répond n'importe quoi ; depuis le lot 9a, réponses HTTP et SMTP, sauvegardes et coffre, retour de la connexion `OAuth2`, en-têtes repris pour répondre ; depuis le lot G2, S/MIME : messages signés vérifiés, messages chiffrés déchiffrés, certificats (8 h sans plantage pour ces cinq cibles, de 553 millions à 1,25 milliard d'entrées) ; depuis le lot E8a, fichiers `.eml` et `.mbox` importés. Chaque entrée qui a fait planter une cible est gardée dans `tests/corpus/fuzz/<cible>/`, rejouée par `corpus.rs` et à chaque fuzzing. Huit cibles ont tourné 8 h chacune sans plantage (de 40 millions à 3,9 milliards d'entrées selon la cible). La cible `mime` a trouvé deux paniques de `mail-parser` sur des `multipart` abîmés : la première, en 0.9.4, est corrigée par la 0.11.9 (lot 8f) ; la seconde, « Invalid part ID », existe encore en 0.11.9 et est rattrapée par `mimeparse.rs` (lot 8h). La cible a ensuite toléré les paniques de la crate et tenu 8 h sans autre plantage (45 millions d'entrées). La version 1.0 ne panique plus sur ces deux mails : depuis le lot 9e, la cible s'arrête de nouveau sur toute panique, crate comprise, et elle a tenu 8 h sans plantage avec la version 1.0 (38,2 millions d'entrées).
 - Analyse statique bloquante : mise en forme (`cargo fmt --check`), Clippy en mode pedantic, avec les règles du projet (lot 10, d'après BeautifulRust : paniques annoncées, pas de `as`, `Debug` et documentation sur tout type public, journal unique), sans aucune alerte tolérée, chaque exception écrite `#[expect(…, reason)]` dans le code ; six règles Semgrep tirées des relectures, chaque exception justifiée dans le code et vérifiée (`semgrep_gate.py`) ; cargo-deny ; npm audit.
-- Relectures indépendantes du 5 et du 10 novembre 2026, relectures du code Rust des lots 10 et B, et relecture complète du 12 novembre 2026 (52 constats, lots correctifs F1 à F5) ; rapports dans le projet, pas dans le dépôt ; chaque constat a son lot correctif dans `plan-lots.md`.
+- Deux relectures indépendantes, une relecture du code Rust de chaque lot depuis le lot 10, et une relecture complète (52 constats, lots correctifs F1 à F5) ; rapports gardés hors du dépôt ; chaque constat a son lot correctif dans le plan du projet.
 
 ## Hors périmètre et limites connues
 
@@ -171,39 +174,6 @@ Une sauvegarde, un coffre portable, une invitation ou une carte de visite enregi
 - **Images affichées :** une fois le clic fait, l'hébergeur apprend l'adresse IP et l'heure.
 - **Connexion sans chiffrement** possible sur choix explicite de l'utilisateur ; le mot de passe passe alors en clair. Une sauvegarde importée peut contenir un tel compte.
 - **Contrôles qui restent partiels :** le corpus vérifie qu'un test nommé existe, pas qu'il vérifie bien l'attendu (c'est le rôle de la relecture) ; les règles Semgrep repèrent des formes écrites en toutes lettres (un interpréteur passé par une variable leur échappe).
-- **Pas d'intégration continue ni de version signée.** Les contrôles tournent sur le poste du développeur (`make audit`, crochet Semgrep avant chaque commit) ; les installateurs ne sont pas signés.
+- **Versions Windows pas encore signées.** Les versions sont construites par GitHub Actions à partir du code public et publiées avec leur `SHA256SUMS` (lot G5c) ; les contrôles locaux tournent toujours sur le poste du développeur (`make audit`, crochet Semgrep avant chaque commit, Jenkins). La signature Windows par la SignPath Foundation est en attente : d'ici là, Windows affiche un avertissement à la première installation.
 - **Lecteur MIME externe.** `mail-parser` 1.0 est réglé par `mimeparse.rs` : 32 niveaux d'imbrication, 1 000 parties, 3 messages encodés imbriqués (au-delà, le reste du mail reste dans une dernière partie). Il est fuzzé (`fuzz/fuzz_targets/mime.rs`). Une panique de la crate serait rattrapée par `mimeparse.rs` (message affiché « illisible » ; seul `catch_unwind` du code, écart voulu aux règles du lot 10), ce qui suppose une compilation qui déroule la pile en cas de panique (le réglage par défaut ; `make audit` refuse `panic = "abort"` depuis le lot 10e).
 
-## Historique
-
-| Date | Résumé |
-| --- | --- |
-| 2026-11-10 | Première version (lot 8d) : biens, adversaires, défenses avec leurs fichiers, argumentaire, limites connues |
-| 2026-11-16 | Lot E8b : agendas (`.ics`) et carnets (`.vcf`) importés lus par les lecteurs déjà fuzzés (`ical`, `vcard`, étendus à `component_blocks`), 20 Mo au plus ; export dans Téléchargements |
-| 2026-11-16 | Lot E8a : messages importés (`.eml`, `.mbox`) lus par `mbox::split`, cible de fuzzing `mbox`, fichier plafonné à 200 Mo, déposés tels quels sur le serveur ; export dans Téléchargements, fichier incomplet retiré si l'export échoue |
-| 2026-11-15 | Lot H1 : réponse aux invitations (iMIP `REPLY`) limitée à la ligne du compte, sans les autres invités, envoyée seulement si l'utilisateur le choisit |
-| 2026-11-14 | Lot G4b : cache chiffré aussi en mode portable, clé dans le coffre, cache ouvert au déverrouillage par le mot de passe maître |
-| 2026-11-14 | Lot G4 : cache local chiffré par SQLCipher, clé aléatoire dans le trousseau, ancien cache chiffré au premier démarrage, copies de secours des brouillons dans le cache (mode portable : lot G4b) |
-| 2026-11-14 | Lot G3 : serveurs d'agenda et de contacts annoncés par le DNS (SRV, TXT) essayés avant de deviner, dans le même domaine seulement ; sous Windows, par le résolveur du système (`DnsQuery_W`) |
-| 2026-11-14 | Lot G2 : fuzzing de la crate `smime`, messages chiffrés ECDH et AES-GCM, envoi chiffré vers des certificats à courbe elliptique, révocation par les listes CRL |
-| 2026-11-14 | Lot G1 : résultats SPF, DKIM et DMARC du serveur de réception lus, expéditeur usurpé signalé |
-| 2026-11-14 | Lot E5 : tests des imports de sauvegarde (C2, C4) et de l'envoi rejoué (Y8) ; une panique pendant l'envoi rend le message à la rédaction |
-| 2026-11-14 | Lot E1 : envoi en arrière-plan, échec émis par le backend seul, copie de secours gardée jusqu'à l'envoi réussi |
-| 2026-11-14 | Lot D4 : brouillons d'un message à chiffrer chiffrés, sans copie de secours en clair ; certificat d'autorité inconnue signalé à la rédaction |
-| 2026-11-13 | Lot D3b : messages envoyés chiffrés, certificats des correspondants gardés sur leurs messages signés, jamais d'envoi en clair à la place |
-| 2026-11-13 | Lot D3a : messages chiffrés reçus lus en mémoire, rien en clair dans le cache, images refusées pour eux |
-| 2026-11-13 | Lot D2 : messages envoyés signés en S/MIME, clé dans le trousseau, certificat limité à l'adresse du compte, signature relue avant l'envoi |
-| 2026-11-13 | Lot D1 : signatures S/MIME reçues vérifiées (autorités pour le courrier seulement, adresse de l'expéditeur, message entier), message modifié signalé, limites (révocation, Ubuntu, Debian et macOS) écrites |
-| 2026-11-13 | Lot F5b (relecture complète) : images distantes toujours bloquées par la CSP de l'`iframe`, adresses retirées des éléments autres que les liens, sauvegarde sans l'état des règles |
-| 2026-11-13 | Lot F5a (relecture complète) : PBKDF2 à 600 000 itérations, jeton d'identité exigé et vérifié à la connexion `OAuth2`, alertes du serveur IMAP montrées, journal sans adresse |
-| 2026-11-13 | Lot F3 (relecture complète) : objet d'un message sans retour à la ligne possible dans les en-têtes, liens `mailto:` sans copie cachée imposée, `EHLO` conforme |
-| 2026-11-13 | Lot F2 (relecture complète) : invitations selon leur méthode (une annulation n'est plus ajoutée comme un rendez-vous), écritures Outlook.com limitées aux champs changés et protégées par `If-Match`, élément relu après un `PUT` sans version |
-| 2026-11-13 | Lot F1 (relecture complète) : `UIDVALIDITY` vérifiée avant toute action par UID, écritures WebDAV dans les sites du compte, mot de passe envoyé seulement sur demande, TLS 1.2 au moins, envois et déplacements sans doublon, copie « Envoyés » mise en attente, import de sauvegarde plus strict |
-| 2026-11-12 | Lot 10 : règles Clippy du projet (BeautifulRust), journal nettoyé (`diag.rs`), règle des verrous repris après une panique, exception `catch_unwind` justifiée |
-| 2026-11-12 | Lot 9e : `mail-parser` 1.0, plafonds réglés, cible `mime` de nouveau stricte |
-| 2026-11-12 | Lot 9c : stockage propre aux fenêtres secondaires, événements relayés et vérifiés par le backend |
-| 2026-11-11 | Lot 9b : chaque entrée « corrigée » du corpus nomme son test, vérifié par `make audit` |
-| 2026-11-11 | Lot 9a : cinq cibles de fuzzing de plus (HTTP, SMTP, sauvegarde, `OAuth2`, en-têtes) |
-| 2026-11-11 | Lot 8h : seconde panique de `mail-parser` (0.11.9) trouvée par le fuzzing, rattrapée ; bilan de la nuit de fuzzing |
-| 2026-11-10 | Lot 8f : panique de `mail-parser` trouvée par le fuzzing, crate passée en 0.11.9, panique rattrapée |
-| 2026-11-10 | Relecture indépendante (57 affirmations tenues, 30 partielles, 8 fausses) et corrections des lots 8e-1 à 8e-3 : texte aligné sur le code, mode Original comme Thunderbird, fenêtres secondaires restreintes, nouvelles limites connues |

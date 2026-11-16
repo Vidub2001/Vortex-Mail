@@ -1,6 +1,8 @@
 # Fuzzing de Vortex Mail
 
-Cibles `cargo-fuzz` pour tout ce qui arrive de l'extérieur (lot 8 de `docs/plan-lots.md`). Le but : qu'aucune entrée, même fabriquée exprès, ne fasse paniquer un thread, déborder la pile ou boucler sans fin.
+**Français** · [English](README.en.md) · [Español](README.es.md)
+
+Cibles `cargo-fuzz` pour tout ce qui arrive de l'extérieur (lot 8 du plan du projet). Le but : qu'aucune entrée, même fabriquée exprès, ne fasse paniquer un thread, déborder la pile ou boucler sans fin.
 
 | Cible | Ce qui est lu | Code concerné |
 | --- | --- | --- |

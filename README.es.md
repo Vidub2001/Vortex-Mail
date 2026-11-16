@@ -12,7 +12,7 @@ Cliente de correo libre para Linux y Windows, escrito en Rust con Tauri.
 ![Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0b2545)
 ![Rust | Tauri 2](https://img.shields.io/badge/Rust-Tauri%202-ef5a5f)
 
-[**Descargar**](https://github.com/Vidub2001/Vortex-Mail/releases/latest) · [Sitio web](https://vortexmail.fr/es/) · [Compilación](docs/COMPILATION.md) · [Modelo de amenazas](docs/MODELE-MENACE.md)
+[**Descargar**](https://github.com/Vidub2001/Vortex-Mail/releases/latest) · [Sitio web](https://vortexmail.fr/es/) · [Compilación](docs/COMPILATION.es.md) · [Modelo de amenazas](docs/MODELE-MENACE.es.md)
 
 [Français](README.fr.md) · [English](README.md) · **Español**
 
@@ -52,7 +52,7 @@ Las versiones se compilan a partir de este repositorio con GitHub Actions. Cada 
 
 Los archivos de Windows aún no están firmados: Windows puede mostrar un aviso en la primera instalación.
 
-> **Estado:** versión 0.2.2, usada a diario por su autor. Se agradecen los comentarios y los avisos de errores.
+> **Estado:** versión 0.2.3, usada a diario por su autor. Se agradecen los comentarios y los avisos de errores.
 
 ## Funciones
 
@@ -125,8 +125,8 @@ Los archivos de Windows aún no están firmados: Windows puede mostrar un aviso 
 - Controles automáticos antes de cada fusión (`make audit`): dependencias (cargo-deny, npm audit),
   reglas Semgrep surgidas de las revisiones, Clippy estricto con las reglas del proyecto, formato,
   pruebas (con recorridos de la interfaz en Chromium) y un corpus de correos trampa; fuzzing de los analizadores (MIME, IMAP, HTML,
-  iCalendar, respuestas de red…). Véanse [docs/MODELE-MENACE.md](docs/MODELE-MENACE.md) y
-  [docs/AUDIT.md](docs/AUDIT.md) (en francés).
+  iCalendar, respuestas de red…). Véanse el [modelo de amenazas](docs/MODELE-MENACE.es.md), los
+  [controles](docs/AUDIT.es.md) y el [fuzzing](fuzz/README.es.md).
 
 </details>
 
@@ -158,11 +158,11 @@ Pruebas y controles:
 cargo test --workspace   # Rust: lógica principal, IMAP contra un servidor simulado, aplicación
 npm test                 # interfaz: calendario, enlaces, reglas, recordatorios
 make ui-test             # recorridos de la interfaz en Chromium (npx playwright install chromium)
-make audit               # todos los controles (véase docs/AUDIT.md)
+make audit               # todos los controles (véase docs/AUDIT.es.md)
 ```
 
 La compilación final, los instaladores, el ZIP portátil para Windows y la resolución de problemas
-se describen en **[docs/COMPILATION.md](docs/COMPILATION.md)** (en francés).
+se describen en **[docs/COMPILATION.es.md](docs/COMPILATION.es.md)**.
 
 ## Añadir una cuenta
 
@@ -238,9 +238,8 @@ src/                     interfaz React + Fluent UI
   rules.ts               reglas de correo
   calendar.ts, recurrence.ts, reminders.ts  calendario: ocurrencias, repetición, recordatorios
   components/            paneles, listas, redacción, calendario, contactos, configuración
-docs/COMPILATION.md      guía de compilación para Linux y Windows (en francés)
-docs/AUDIT.md            controles (make audit); MODELE-MENACE.md: modelo de amenazas (en francés)
-docs/plan-lots.md        plan de lotes de correcciones y mejoras (en francés)
+docs/COMPILATION*.md     guía de compilación para Linux y Windows (francés, inglés, español)
+docs/AUDIT*.md           controles (make audit); MODELE-MENACE*.md: modelo de amenazas
 fuzz/, tests/            fuzzing, corpus de no regresión, pruebas de la interfaz
 ```
 

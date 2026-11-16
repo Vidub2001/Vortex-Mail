@@ -1,6 +1,8 @@
 # Contrôles qualité et sécurité
 
-Ce document décrit le filet de sécurité mis en place au lot 0 de [plan-lots.md](plan-lots.md). Son rôle est de repérer toute régression pendant les lots suivants.
+**Français** · [English](AUDIT.en.md) · [Español](AUDIT.es.md)
+
+Ce document décrit le filet de sécurité mis en place au lot 0 du plan du projet. Son rôle est de repérer toute régression pendant les lots suivants.
 
 ## En bref
 
@@ -98,7 +100,7 @@ Sont écartées, comme dans BeautifulRust : `module_name_repetitions`, `must_use
 
 `expect` plutôt qu'`allow` (refusé par `clippy::allow_attributes`) : le jour où l'alerte ne se déclenche plus, `expect` le signale, et l'exception devenue inutile disparaît. Une exception sans raison est elle-même refusée (`clippy::allow_attributes_without_reason`). Pour les retrouver toutes : `git grep -n "expect(clippy"`.
 
-**Deux écarts voulus aux règles de BeautifulRust**, justifiés dans le code et dans `docs/MODELE-MENACE.md` :
+**Deux écarts voulus aux règles de BeautifulRust**, justifiés dans le code et dans le [modèle de menace](MODELE-MENACE.md) :
 
 - **Verrous empoisonnés.** La règle demande d'arrêter l'application quand un verrou est « empoisonné » (une panique est survenue pendant qu'il était pris). Vortex Mail reprend le verrou (`guard` dans `router.rs`, `lock` dans `auth.rs`), parce que les données protégées sont remplacées d'un bloc ; les connexions IMAP, elles, sont fermées et rouvertes. En contrepartie : sous ces verrous, aucune modification en plusieurs étapes hors transaction.
 - **`catch_unwind`.** Une seule fois, autour de la crate `mail-parser` (`guarded` dans `mimeparse.rs`) : un message qui la fait paniquer est affiché comme illisible, au lieu d'arrêter le fil qui le lisait. Ce filet ne marche que si les paniques déroulent la pile : `make panic-unwind` refuse `panic = "abort"`.
