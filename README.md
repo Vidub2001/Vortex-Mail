@@ -52,7 +52,7 @@ Releases are built from this repository by GitHub Actions. Each one comes with `
 
 Windows files are not signed yet, so Windows may show a warning on first install.
 
-> **Status:** version 0.3.1, used every day by its author. Feedback and bug reports are welcome.
+> **Status:** version 0.3.2, used every day by its author. Feedback and bug reports are welcome.
 
 ## Features
 
@@ -291,6 +291,10 @@ through `tr!` with entries in `src-tauri/src/locales/`.
 ## Downloads and code signing
 
 Releases are built from this repository by GitHub Actions and published on the Releases page, with the SHA-256 checksums of every file (`SHA256SUMS`). Windows files are not signed yet. Once the SignPath Foundation application is accepted: free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). See the [code signing policy](CODE_SIGNING.md).
+
+## Thanks
+
+Thanks to Vincent Corlaix for testing Proton Mail support (through Proton Mail Bridge).
 
 ## License
 

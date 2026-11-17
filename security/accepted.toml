@@ -12,3 +12,19 @@
 # Plus aucune tolérance depuis le lot 8 : une section [[semgrep]] ici n'est plus
 # lue. Une exception se justifie dans le code, par un commentaire
 # « nosemgrep: vortex-regle -- raison » (voir docs/AUDIT.md).
+
+# --- npm audit ----------------------------------------------------------------
+# Avis de gravité haute ou critique tolérés : `avis` est l'adresse de l'avis
+# telle que `npm audit` la donne. À retirer dès qu'une version corrigée existe.
+
+[[npm]]
+avis = "https://github.com/advisories/GHSA-fc5q-39xc-vjpf"
+paquet = "picomatch 4.0.7"
+raison = """
+ReDoS sur des motifs « extglob » piégés (`+(*)`). picomatch n'est tiré que
+par vite (fdir, tinyglobby), outil de construction : jamais livré dans
+l'application, et ses motifs viennent de la configuration du projet, pas
+d'un tiers. Aucune version corrigée publiée au 17 novembre 2026 ;
+`npm audit fix` ramène vite en 6.2.7, touché par une douzaine d'autres avis.
+"""
+a_revoir = "à la prochaine version de picomatch ou de vite"

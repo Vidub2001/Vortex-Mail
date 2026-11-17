@@ -17,7 +17,7 @@ use crate::attachments;
 use crate::cache::Cache;
 use crate::config::{self, same_server, AccountConfig};
 use crate::router::{
-    lock_cache, AccountError, AttachmentInput, DraftContent, FlushReport, PrefetchReport, Router, SavedDraft, SearchReport,
+    lock_cache, AccountError, AttachmentInput, DraftContent, FlushReport, PrefetchReport, RestoreReport, Router, SavedDraft, SearchReport,
 };
 use crate::sanitize;
 use crate::secrets;
@@ -1214,6 +1214,19 @@ pub(crate) async fn move_folder(state: State<'_, AppState>, folder_id: String, p
 pub(crate) async fn empty_folder(state: State<'_, AppState>, folder_id: String) -> CmdResult<u32> {
     let router = router(&state);
     blocking(move || router.empty_folder(&folder_id).map_err(|e| e.to_string())).await
+}
+
+/// Remet des messages d'« Éléments supprimés » dans leur dossier d'origine,
+/// ou dans la boîte de réception de leur compte quand il n'est pas connu.
+#[tauri::command]
+pub(crate) async fn restore_messages(state: State<'_, AppState>, ids: Vec<MessageId>) -> CmdResult<RestoreReport> {
+    let (router, journal) = (router(&state), Arc::clone(&state.journal));
+    blocking(move || {
+        let r = &router;
+        let mut j = lock(&journal)?;
+        r.restore(&mut j, &ids).map_err(|e| e.to_string())
+    })
+    .await
 }
 
 /// Supprime définitivement des messages de la corbeille ou du courrier indésirable.

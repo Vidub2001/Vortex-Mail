@@ -503,6 +503,7 @@ pub fn run() {
             commands::detect_account,
             commands::bridge_certificate,
             commands::delete_forever,
+            commands::restore_messages,
             commands::oauth_status,
             commands::google_sign_in,
             commands::google_status,

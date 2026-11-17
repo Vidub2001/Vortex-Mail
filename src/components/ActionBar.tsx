@@ -19,6 +19,7 @@ import {
   ArrowForward20Regular,
   ArrowReply20Regular,
   ArrowReplyAll20Regular,
+  ArrowUndo20Regular,
   Delete20Regular,
   Flag20Filled,
   Flag20Regular,
@@ -44,6 +45,8 @@ interface Props {
   onReply: (mode: "reply" | "replyAll" | "forward") => void;
   onArchive: () => void;
   onDelete: () => void;
+  /** « Restaurer » : seulement pour une sélection d'« Éléments supprimés ». */
+  onRestore?: () => void;
   onMove: (folderId: string) => void;
   onToggleSeen: () => void;
   onToggleFlag: () => void;
@@ -146,6 +149,7 @@ export function ActionBar(p: Props) {
     { id: "forward", label: t("Transférer"), icon: <ArrowForward20Regular />, disabled: !p.canReply, onClick: () => p.onReply("forward") },
     { id: "archive", label: t("Archiver"), icon: <Archive20Regular />, disabled: none, onClick: p.onArchive, group: true },
     { id: "delete", label: t("Supprimer"), icon: <Delete20Regular />, disabled: none, onClick: p.onDelete },
+    ...(p.onRestore ? [{ id: "restore", label: t("Restaurer"), icon: <ArrowUndo20Regular />, disabled: none, onClick: p.onRestore }] : []),
     { id: "move", label: t("Déplacer"), icon: <FolderArrowRight20Regular />, disabled: none, move: true },
     {
       id: "seen",

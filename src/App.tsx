@@ -799,6 +799,42 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
   };
 
   const quickDelete = (m: MessageSummary) => deleteIds([m.id]);
+  /** Message (affiché) rangé dans « Éléments supprimés ». */
+  const inTrash = (id: number) => {
+    const m = (searchResults ?? messages).find((x) => x.id === id);
+    return !!m && folderById.get(m.folderId)?.role === "trash";
+  };
+
+  /** Restaurer : chaque message retourne dans son dossier d'origine, sinon dans la boîte de réception. */
+  const restoreIds = (ids: number[]) =>
+    api
+      .restoreMessages(ids)
+      .then(async ({ report, toInbox }) => {
+        const n = report.moved.length + (report.queued ?? 0);
+        if (n > 0) {
+          notify(
+            n > 1 ? t("{n} éléments restaurés", { n }) : t("{n} élément restauré", { n }),
+            toInbox > 0 ? t("{n} sans dossier d'origine connu : remis dans la boîte de réception", { n: toInbox }) : undefined,
+          );
+        }
+        if ((report.queued ?? 0) > 0) refreshPending();
+        if (report.failed.length > 0) {
+          notify(t("{n} échec(s)", { n: report.failed.length }), report.failed.map((f) => f.reason).join("\n"), "error");
+        }
+        const failedIds = new Set(report.failed.map((f) => f.id));
+        setSearchResults((list) => (list ? list.filter((m) => !ids.includes(m.id) || failedIds.has(m.id)) : list));
+        setSelectedIds([]);
+        setCurrent(null);
+        await reloadFolders();
+        if (folderId) await reloadMessages(folderId);
+      })
+      .catch(fail);
+
+  /** Clic droit › Restaurer : comme Supprimer, toute la sélection qui contient le message. */
+  const menuRestore = (m: MessageSummary) => restoreIds(selectedIds.includes(m.id) ? selectedIds : [m.id]);
+
+  /** Clic droit › Supprimer : toute la sélection si le message en fait partie, sinon lui seul. */
+  const menuDelete = (m: MessageSummary) => deleteIds(selectedIds.includes(m.id) ? selectedIds : [m.id]);
 
   /** Règle préremplie depuis un message (clic droit), ouverte dans Paramètres › Règles. */
   const [ruleDraft, setRuleDraft] = useState<Rule | null>(null);
@@ -1545,6 +1581,9 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
             onQuickSeen={quickSeen}
             onQuickFlag={quickFlag}
             onQuickDelete={quickDelete}
+            onMenuDelete={menuDelete}
+            onMenuRestore={menuRestore}
+            restorable={(m) => inTrash(m.id)}
             onCreateRule={createRule}
             onExport={exportMessages}
           />
@@ -1581,6 +1620,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
                   onReply={startReply}
                   onArchive={() => moveToRole("archive", t("Archive"))}
                   onDelete={() => deleteIds(selectedIds)}
+                  onRestore={selectedIds.length > 0 && selectedIds.every(inTrash) ? () => restoreIds(selectedIds) : undefined}
                   onMove={(id) => moveTo(id, selectedIds)}
                   onToggleSeen={toggleSeen}
                   onToggleFlag={toggleFlag}

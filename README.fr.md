@@ -52,7 +52,7 @@ Les versions sont construites à partir de ce dépôt par GitHub Actions. Chacun
 
 Les fichiers Windows ne sont pas encore signés : Windows peut afficher un avertissement à la première installation.
 
-> **État :** version 0.3.1, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
+> **État :** version 0.3.2, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
 
 ## Fonctionnalités
 
@@ -303,6 +303,10 @@ textes produits par le backend Rust passent par `tr!` avec leurs entrées dans
 ## Téléchargement et signature
 
 Les versions sont construites à partir de ce dépôt par GitHub Actions et publiées dans la page des versions (Releases), avec l'empreinte SHA-256 de chaque fichier (`SHA256SUMS`). Les fichiers Windows ne sont pas encore signés. Une fois la candidature à SignPath Foundation acceptée : free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). Voir la [politique de signature](CODE_SIGNING.md).
+
+## Remerciements
+
+Merci à Vincent Corlaix, qui a testé la prise en charge de Proton Mail (par Proton Mail Bridge).
 
 ## Licence
 

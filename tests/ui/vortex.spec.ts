@@ -238,3 +238,56 @@ test("Gmail : mot de passe d'application dans l'assistant, application Google pa
   await expect(settings.getByRole("heading", { name: "Ajouter un compte IMAP" })).toBeVisible();
   await expect(settings.getByLabel("Adresse e-mail")).toHaveValue("camille@gmail.com");
 });
+
+// Suppression d'une sélection de plusieurs messages (signalé par un testeur le
+// 17 novembre 2026) : touche Suppr, bouton de la barre et clic droit › Supprimer
+// doivent tous envoyer toute la sélection, de deux comptes différents, aux
+// éléments supprimés.
+const twoAccounts = ["Repas de dimanche", "Pièces manquantes pour la clôture"];
+
+async function selectTwo(page: Page) {
+  const list = page.getByRole("listbox", { name: "Messages" });
+  await list.getByText(twoAccounts[0]).click();
+  await list.getByText(twoAccounts[1]).click({ modifiers: ["Control"] });
+  await expect(list.locator(".msg.selected")).toHaveCount(2);
+  return list;
+}
+
+async function bothGone(page: Page) {
+  const list = page.getByRole("listbox", { name: "Messages" });
+  for (const subject of twoAccounts) await expect(list.getByText(subject)).toHaveCount(0);
+  await expect(page.getByText("Votre relevé d'octobre est disponible")).toBeVisible();
+}
+
+test("sélection supprimée par la touche Suppr", async ({ page }) => {
+  await selectTwo(page);
+  await page.keyboard.press("Delete");
+  await bothGone(page);
+});
+
+test("sélection supprimée par le bouton de la barre", async ({ page }) => {
+  await selectTwo(page);
+  await page.getByRole("toolbar", { name: "Actions sur la sélection" }).getByRole("button", { name: "Supprimer" }).click();
+  await bothGone(page);
+});
+
+test("sélection supprimée par clic droit › Supprimer", async ({ page }) => {
+  const list = await selectTwo(page);
+  await list.getByText(twoAccounts[0]).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Supprimer" }).click();
+  await bothGone(page);
+});
+
+test("Restaurer : un message supprimé revient dans son dossier d'origine", async ({ page }) => {
+  const list = page.getByRole("listbox", { name: "Messages" });
+  await list.getByText("Repas de dimanche").click();
+  await page.keyboard.press("Delete");
+  await expect(list.getByText("Repas de dimanche")).toHaveCount(0);
+  await page.getByRole("treeitem").filter({ hasText: "Éléments supprimés" }).first().click();
+  await list.getByText("Repas de dimanche").click();
+  await page.getByRole("toolbar", { name: "Actions sur la sélection" }).getByRole("button", { name: "Restaurer" }).click();
+  await expect(page.getByText("1 élément restauré", { exact: true })).toBeVisible();
+  await expect(list.getByText("Repas de dimanche")).toHaveCount(0);
+  await page.getByRole("treeitem").filter({ hasText: "Boîte de réception" }).first().click();
+  await expect(list.getByText("Repas de dimanche")).toBeVisible();
+});

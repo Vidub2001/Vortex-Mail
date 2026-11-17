@@ -9,6 +9,14 @@ all-features = false
 [advisories]
 # Toute faille, crate abandonnée ou défaut de sûreté connu est bloquant, sauf
 # s'il figure dans le bloc ci-dessous avec une raison.
+#
+# Hors de ce bloc, parce que cargo-deny ne la signale pas (défaut d'une
+# dépendance indirecte, `unsound` limité au périmètre du dépôt) mais Dependabot
+# si : RUSTSEC-2024-0429 / GHSA-wrw7-89jp-8q8g, `glib` 0.18 (itérateur
+# `VariantStrIter`). Tirée par GTK 3 (Tauri 2 sous Linux), sans mise à jour
+# possible tant que Tauri reste sur GTK 3 ; `VariantStrIter` et `array_iter_str`
+# ne sont appelés nulle part dans les dépendances (vérifié le 17 novembre 2026).
+# Alertes fermées sur GitHub : « Vulnerable code is not actually used ».
 ignore = [
     # >>> acceptés temporairement (généré par `make audit-baseline` ; les raisons peuvent être réécrites)
     # unmaintained — proc-macro-error : proc-macro-error is unmaintained

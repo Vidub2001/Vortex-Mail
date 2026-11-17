@@ -1,7 +1,7 @@
 // Maquette JS utilisée seulement hors de Tauri (aperçu navigateur).
 // Mêmes règles que le Rust : même compte = déplacement simple,
 // autre compte = copie avec nouvel identifiant puis suppression de la source.
-import type { Account, AccountConfig, AttachmentInput, CalEvent, Contact, Draft, DraftContent, PimCollection, Suggestion, Folder, FolderListing, FolderRole, Message, MessageSummary, MoveReport, SavedDraft, TestReport, Detected } from "./types";
+import type { Account, AccountConfig, AttachmentInput, CalEvent, Contact, Draft, DraftContent, PimCollection, Suggestion, Folder, FolderListing, FolderRole, Message, MessageSummary, MoveReport, RestoreReport, SavedDraft, TestReport, Detected } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
 const h = (hours: number) => now - hours * 3600;
@@ -314,12 +314,16 @@ export async function search(query: string): Promise<MessageSummary[]> {
     .map(summary);
 }
 
+/** Dossier d'origine des messages mis dans « Éléments supprimés » (« Restaurer »). */
+const trashOrigins = new Map<number, string>();
+
 export async function moveToRole(ids: number[], role: FolderRole): Promise<MoveReport> {
   const total: MoveReport = { moved: [], failed: [], sameAccount: 0, crossAccount: 0 };
   for (const id of ids) {
     const m = messages.get(id);
     const target = m && folders.find((f) => f.accountId === m.accountId && f.role === role);
     if (!target) { total.failed.push({ id, reason: "dossier cible introuvable" }); continue; }
+    if (role === "trash" && m.folderId !== target.id) trashOrigins.set(id, m.folderId);
     const r = await moveMessages([id], target.id);
     total.moved.push(...r.moved);
     total.failed.push(...r.failed);
@@ -327,6 +331,29 @@ export async function moveToRole(ids: number[], role: FolderRole): Promise<MoveR
     total.crossAccount += r.crossAccount;
   }
   return total;
+}
+
+export async function restoreMessages(ids: number[]): Promise<RestoreReport> {
+  const report: MoveReport = { moved: [], failed: [], sameAccount: 0, crossAccount: 0 };
+  let toInbox = 0;
+  for (const id of ids) {
+    const m = messages.get(id);
+    if (!m || folders.find((f) => f.id === m.folderId)?.role !== "trash") {
+      throw "Seuls les éléments supprimés peuvent être restaurés.";
+    }
+    let target = trashOrigins.get(id);
+    if (!target || !folders.some((f) => f.id === target)) {
+      target = folders.find((f) => f.accountId === m.accountId && f.role === "inbox")?.id;
+      toInbox++;
+    }
+    if (!target) { report.failed.push({ id, reason: "dossier cible introuvable" }); continue; }
+    const r = await moveMessages([id], target);
+    trashOrigins.delete(id);
+    report.moved.push(...r.moved);
+    report.failed.push(...r.failed);
+    report.sameAccount += r.sameAccount;
+  }
+  return { report, toInbox };
 }
 
 // ---------------------------------------------------------------- contacts et agenda

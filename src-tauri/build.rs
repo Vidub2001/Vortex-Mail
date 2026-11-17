@@ -62,6 +62,7 @@ const COMMANDS: &[&str] = &[
     "detect_account",
     "bridge_certificate",
     "delete_forever",
+    "restore_messages",
     "oauth_status",
     "google_sign_in",
     "google_status",

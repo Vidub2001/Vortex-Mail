@@ -19,6 +19,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 /// Les identifiants de messages commencent ici (au-delà de ceux de la démo).
 const ID_BASE: MessageId = 1 << 40;
 
+/// Durée pendant laquelle le dossier d'origine d'un message supprimé reste
+/// noté (« Restaurer ») ; au-delà, il revient dans la boîte de réception.
+pub(crate) const TRASH_ORIGIN_DAYS: i64 = 180;
+
 const SCHEMA: &str = "
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -144,6 +148,19 @@ CREATE TABLE IF NOT EXISTS invitation_answers (
     answer     TEXT    NOT NULL,
     sequence   INTEGER NOT NULL,
     PRIMARY KEY (account, uid, recurrence)
+);
+
+-- Dossier d'origine des messages envoyés dans « Éléments supprimés » par
+-- Vortex Mail, pour « Restaurer » : par compte et `Message-ID` (l'UID change
+-- avec le dossier) ; un même `Message-ID` peut venir de plusieurs dossiers
+-- (message envoyé à soi-même : « Éléments envoyés » et boîte de réception) ;
+-- `deleted_at` en secondes, pour oublier les plus anciens.
+CREATE TABLE IF NOT EXISTS trash_origins (
+    account    TEXT    NOT NULL,
+    message_id TEXT    NOT NULL,
+    mailbox    TEXT    NOT NULL,
+    deleted_at INTEGER NOT NULL,
+    PRIMARY KEY (account, message_id, mailbox)
 );
 
 CREATE TABLE IF NOT EXISTS accounts (
@@ -691,7 +708,7 @@ impl Cache {
     /// doivent jamais être rejoués sur le nouveau (relecture Y6).
     pub fn delete_account(&mut self, account: &str) -> Res<()> {
         let tx = self.conn.transaction().map_err(sql)?;
-        for table in ["folders", "folder_state", "messages", "bodies", "pending_actions", "move_journal", "pending_sent"] {
+        for table in ["folders", "folder_state", "messages", "bodies", "pending_actions", "move_journal", "pending_sent", "trash_origins"] {
             tx.execute(&format!("DELETE FROM {table} WHERE account = ?1"), params![account]).map_err(sql)?;
         }
         // Déplacements vers ce compte depuis un autre : la cible n'existe plus.
@@ -1419,6 +1436,46 @@ impl Cache {
             .map_err(sql)
     }
 
+    /// Note le dossier d'origine de messages envoyés dans « Éléments supprimés »
+    /// (par leur `Message-ID`), et oublie les notes de plus de
+    /// [`TRASH_ORIGIN_DAYS`] jours.
+    pub fn trash_origins_put(&mut self, account: &str, mailbox: &str, message_ids: &[String], now: i64) -> Res<()> {
+        let tx = self.conn.transaction().map_err(sql)?;
+        for message_id in message_ids {
+            tx.execute(
+                "INSERT OR REPLACE INTO trash_origins (account, message_id, mailbox, deleted_at) VALUES (?1, ?2, ?3, ?4)",
+                params![account, message_id, mailbox, now],
+            )
+            .map_err(sql)?;
+        }
+        let oldest = now.saturating_sub(TRASH_ORIGIN_DAYS.saturating_mul(86_400));
+        tx.execute("DELETE FROM trash_origins WHERE deleted_at < ?1", params![oldest]).map_err(sql)?;
+        tx.commit().map_err(sql)
+    }
+
+    /// Dossiers d'origine notés pour ce `Message-ID`, du plus récent au plus ancien.
+    pub fn trash_origins(&self, account: &str, message_id: &str) -> Res<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT mailbox FROM trash_origins WHERE account = ?1 AND message_id = ?2 ORDER BY deleted_at DESC, mailbox")
+            .map_err(sql)?;
+        let rows = stmt.query_map(params![account, message_id], |r| r.get(0)).map_err(sql)?;
+        rows.collect::<Result<Vec<String>, _>>().map_err(sql)
+    }
+
+    /// Oublie le dossier d'origine de messages restaurés : (`Message-ID`, dossier).
+    pub fn trash_origins_forget(&mut self, account: &str, restored: &[(String, String)]) -> Res<()> {
+        let tx = self.conn.transaction().map_err(sql)?;
+        for (message_id, mailbox) in restored {
+            tx.execute(
+                "DELETE FROM trash_origins WHERE account = ?1 AND message_id = ?2 AND mailbox = ?3",
+                params![account, message_id, mailbox],
+            )
+            .map_err(sql)?;
+        }
+        tx.commit().map_err(sql)
+    }
+
     /// Copies de secours restantes : (clé, copie).
     pub fn backups(&self) -> Res<Vec<(String, String)>> {
         let mut stmt = self.conn.prepare("SELECT key, data FROM draft_backups ORDER BY key").map_err(sql)?;
@@ -1724,6 +1781,27 @@ mod tests {
             flags: Flags { seen, flagged: false, answered: false },
             has_attachments: uid == 2,
         }
+    }
+
+    #[test]
+    fn dossier_d_origine_des_messages_supprimes() {
+        let mut c = Cache::in_memory().unwrap();
+        let ids = vec!["<a@x>".to_string(), "<b@x>".to_string()];
+        c.trash_origins_put("a", "Clients", &ids, 1_000_000_000).unwrap();
+        assert_eq!(c.trash_origins("a", "<a@x>").unwrap(), ["Clients"]);
+        assert_eq!(c.trash_origins("b", "<a@x>").unwrap(), Vec::<String>::new(), "autre compte");
+        // Même Message-ID supprimé d'un second dossier : les deux restent notés, le plus récent d'abord.
+        c.trash_origins_put("a", "Sent", &ids[..1], 1_000_000_100).unwrap();
+        assert_eq!(c.trash_origins("a", "<a@x>").unwrap(), ["Sent", "Clients"]);
+        c.trash_origins_forget("a", &[("<a@x>".to_string(), "Sent".to_string())]).unwrap();
+        assert_eq!(c.trash_origins("a", "<a@x>").unwrap(), ["Clients"]);
+        // Les notes trop anciennes sont oubliées.
+        let later = 1_000_000_000 + (TRASH_ORIGIN_DAYS + 1) * 86_400;
+        c.trash_origins_put("a", "INBOX", &["<c@x>".to_string()], later).unwrap();
+        assert_eq!(c.trash_origins("a", "<b@x>").unwrap(), Vec::<String>::new());
+        assert_eq!(c.trash_origins("a", "<c@x>").unwrap(), ["INBOX"]);
+        c.delete_account("a").unwrap();
+        assert_eq!(c.trash_origins("a", "<c@x>").unwrap(), Vec::<String>::new());
     }
 
     #[test]

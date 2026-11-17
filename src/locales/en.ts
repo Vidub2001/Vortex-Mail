@@ -939,6 +939,10 @@ const en: Record<string, string> = {
   // Gmail dans l'assistant : mot de passe d'application par défaut.
   "Courrier seul : collez un mot de passe d'application Google ci-dessous. Courrier, agenda et contacts : « Se connecter avec Google » ouvre le formulaire complet, pour votre propre application Google.": "Mail only: paste a Google app password below. Mail, calendar and contacts: “Sign in with Google” opens the full form, for your own Google app.",
   "À créer sur myaccount.google.com/apppasswords (validation en deux étapes requise) : votre mot de passe Google est refusé.": "Create one at myaccount.google.com/apppasswords (2-Step Verification required): your Google password is refused.",
+  "Restaurer": "Restore",
+  "{n} éléments restaurés": "{n} items restored",
+  "{n} élément restauré": "{n} item restored",
+  "{n} sans dossier d'origine connu : remis dans la boîte de réception": "{n} with no known original folder: put back in the Inbox",
 };
 
 export default en;

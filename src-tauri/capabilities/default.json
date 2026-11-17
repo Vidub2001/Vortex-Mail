@@ -64,6 +64,7 @@
     "allow-detect-account",
     "allow-bridge-certificate",
     "allow-delete-forever",
+    "allow-restore-messages",
     "allow-oauth-status",
     "allow-google-sign-in",
     "allow-google-status",

@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use imap_lite::{FetchItem, ListEntry, MailboxStatus, SearchKey, SelectInfo, UidSet};
 use mail_core::{
-    Account, Flags, Folder, FolderId, FolderRole, Journal, MailBackend, MailError, Message, MessageId, MessageSummary, MoveReport,
-    RawMessage,
+    Account, FailedMove, Flags, Folder, FolderId, FolderRole, Journal, MailBackend, MailError, Message, MessageId, MessageSummary,
+    MoveReport, RawMessage,
 };
 use serde::Serialize;
 
@@ -964,6 +964,47 @@ pub struct ImportReport {
     pub stopped: bool,
 }
 
+/// Bilan de « Restaurer » (messages remis hors d'« Éléments supprimés »).
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreReport {
+    /// Déplacements faits, mis en attente ou en échec.
+    pub report: MoveReport,
+    /// Messages sans dossier d'origine connu, remis dans la boîte de réception.
+    pub to_inbox: u32,
+}
+
+/// Messages d'un même dossier d'« Éléments supprimés » à restaurer.
+struct TrashGroup {
+    account: String,
+    mailbox: String,
+    /// (identifiant, UID dans ce dossier).
+    members: Vec<(MessageId, u32)>,
+}
+
+/// Messages à remettre dans un même dossier par « Restaurer ».
+struct RestoreTarget {
+    folder: FolderId,
+    ids: Vec<MessageId>,
+    /// Notes à oublier une fois restaurés : (`Message-ID`, dossier).
+    notes: Vec<(String, String)>,
+}
+
+/// `Message-ID` des messages `uids` du dossier sélectionné : (UID, `Message-ID`) ;
+/// les messages qui n'en ont pas sont absents de la liste.
+fn fetch_message_ids(s: &mut Session, uids: &[u32]) -> imap_lite::Result<Vec<(u32, String)>> {
+    let items = s.uid_fetch(uids, "(UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")?;
+    Ok(items
+        .iter()
+        .filter_map(|item| {
+            let uid = item.uid()?;
+            let message_id = compose::header_value(item.body("BODY[HEADER")?, "Message-ID")?;
+            let message_id = message_id.trim();
+            (uids.contains(&uid) && !message_id.is_empty()).then(|| (uid, message_id.to_string()))
+        })
+        .collect())
+}
+
 /// Bilan d'une reprise des actions en attente.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1809,6 +1850,99 @@ impl Router {
         Ok(report)
     }
 
+    /// Remet des messages d'« Éléments supprimés » dans le dossier d'où Vortex
+    /// Mail les avait supprimés ; sans dossier d'origine connu (supprimés
+    /// ailleurs, note trop ancienne, dossier disparu), dans la boîte de
+    /// réception de leur compte. Les `Message-ID` sont lus sur le serveur :
+    /// hors connexion, les messages du dossier sont rendus en échec (rien
+    /// n'est deviné) ; une coupure pendant les déplacements les met en attente
+    /// comme les autres. Plusieurs messages au même `Message-ID` (message
+    /// envoyé à soi-même) retournent chacun dans un dossier noté différent.
+    ///
+    /// # Errors
+    ///
+    /// Message hors d'« Éléments supprimés » ([`MailError::InvalidTarget`]) ou
+    /// introuvable ; rien n'est alors déplacé.
+    pub fn restore(&self, journal: &mut Journal, ids: &[MessageId]) -> Result<RestoreReport, MailError> {
+        let mut sources: Vec<TrashGroup> = Vec::new();
+        for &id in ids {
+            let r = self.imap_ref(id)?;
+            let role = self.folder(&format!("{}:{}", r.account, r.mailbox)).map(|f| f.role);
+            if role != Some(FolderRole::Trash) {
+                return Err(MailError::InvalidTarget(tr!("Seuls les éléments supprimés peuvent être restaurés.").into()));
+            }
+            match sources.iter_mut().find(|g| g.account == r.account && g.mailbox == r.mailbox) {
+                Some(g) => g.members.push((id, r.uid)),
+                None => sources.push(TrashGroup { account: r.account, mailbox: r.mailbox, members: vec![(id, r.uid)] }),
+            }
+        }
+        let mut out = RestoreReport::default();
+        for TrashGroup { account, mailbox, members } in sources {
+            let uids: Vec<u32> = members.iter().map(|m| m.1).collect();
+            let known = self.known_validity(&account, &mailbox);
+            let found = self.imap_account(&account).map_err(|e| e.to_string()).and_then(|a| {
+                a.run(Lane::User, |s| {
+                    ensure_selected(s, &mailbox, known)?;
+                    fetch_message_ids(s, &uids)
+                })
+            });
+            // Serveur injoignable : ces messages restent où ils sont, les autres comptes continuent.
+            let found = match found {
+                Ok(found) => found,
+                Err(reason) => {
+                    out.report.failed.extend(members.iter().map(|&(id, _)| FailedMove { id, reason: reason.clone() }));
+                    continue;
+                }
+            };
+            let inbox = self.folder_by_role(&account, FolderRole::Inbox).unwrap_or_else(|| format!("{account}:INBOX"));
+            let mut targets: Vec<RestoreTarget> = Vec::new();
+            // Notes déjà prises dans ce passage : deux copies au même `Message-ID`
+            // retournent chacune dans son dossier.
+            let mut taken: Vec<(String, String)> = Vec::new();
+            for (id, uid) in members {
+                let message_id = found.iter().find(|f| f.0 == uid).map(|f| f.1.clone());
+                let origin = message_id.as_ref().and_then(|m| {
+                    let notes = self.cache().trash_origins(&account, m).unwrap_or_default();
+                    let usable: Vec<String> = notes
+                        .into_iter()
+                        .filter(|path| self.folder(&format!("{account}:{path}")).is_some_and(|f| f.role != FolderRole::Trash))
+                        .collect();
+                    let path = usable.iter().find(|p| !taken.iter().any(|t| &t.0 == m && &t.1 == *p)).or(usable.first())?.clone();
+                    taken.push((m.clone(), path.clone()));
+                    Some((m.clone(), path))
+                });
+                let folder = if let Some((_, path)) = &origin {
+                    format!("{account}:{path}")
+                } else {
+                    out.to_inbox = out.to_inbox.saturating_add(1);
+                    inbox.clone()
+                };
+                match targets.iter_mut().find(|t| t.folder == folder) {
+                    Some(t) => {
+                        t.ids.push(id);
+                        t.notes.extend(origin);
+                    }
+                    None => targets.push(RestoreTarget { folder, ids: vec![id], notes: origin.into_iter().collect() }),
+                }
+            }
+            for RestoreTarget { folder, ids: restored, notes } in targets {
+                let report = self.move_or_queue(journal, &restored, Some(folder.as_str()), None)?;
+                // Note gardée en cas d'échec : un nouvel essai retrouvera le dossier.
+                let forgotten = if report.failed.is_empty() { self.cache().trash_origins_forget(&account, &notes) } else { Ok(()) };
+                if let Err(e) = forgotten {
+                    crate::diag::report(&e);
+                }
+                let all = &mut out.report;
+                all.same_account = all.same_account.saturating_add(report.same_account);
+                all.cross_account = all.cross_account.saturating_add(report.cross_account);
+                all.queued = all.queued.saturating_add(report.queued);
+                all.moved.extend(report.moved);
+                all.failed.extend(report.failed);
+            }
+        }
+        Ok(out)
+    }
+
     /// Supprime définitivement des messages de la corbeille ou du courrier
     /// indésirable (`\Deleted` puis `UID EXPUNGE`), comme « Supprimer » dans
     /// ces dossiers chez Thunderbird (relecture complète n° 40). Renvoie le
@@ -2463,9 +2597,17 @@ impl Router {
         }
         for (account, mailbox, uids) in groups {
             let known = self.known_validity(&account, &mailbox);
+            // Vers « Éléments supprimés » : dossier d'origine noté pour « Restaurer ».
+            let to_trash = mailbox != target_mailbox && self.folder_by_role(&account, FolderRole::Trash).as_deref() == Some(target);
+            let mut origins: Vec<(u32, String)> = Vec::new();
             self.imap_account(&account)?
                 .run(Lane::User, |s| {
                     ensure_selected(s, &mailbox, known)?;
+                    if to_trash {
+                        // Sans effet sur la suppression si la lecture échoue : seul
+                        // « Restaurer » renverra alors dans la boîte de réception.
+                        origins = fetch_message_ids(s, &uids).unwrap_or_default();
+                    }
                     s.uid_move(&uids, &target_mailbox)
                 })
                 .map_err(backend)?;
@@ -2473,6 +2615,12 @@ impl Router {
             let mut c = self.cache();
             for uid in &uids {
                 c.delete_message(&account, &mailbox, *uid).map_err(backend)?;
+            }
+            if !origins.is_empty() {
+                let message_ids: Vec<String> = origins.into_iter().map(|(_, m)| m).collect();
+                if let Err(e) = c.trash_origins_put(&account, &mailbox, &message_ids, now()) {
+                    crate::diag::report(&e);
+                }
             }
         }
         Ok(ids.to_vec())
@@ -2698,7 +2846,12 @@ mod tests {
             let tag = words.next().unwrap_or("*").to_owned();
             let verb = words.next().unwrap_or("").to_ascii_uppercase();
             let next = words.next().unwrap_or("").to_ascii_uppercase();
-            self.received.lock().expect("journal du serveur joué").push(format!("{verb} {next}"));
+            {
+                let mut received = self.received.lock().expect("journal du serveur joué");
+                received.push(format!("{verb} {next}"));
+                // Commande entière (sans l'étiquette), pour vérifier ses arguments.
+                received.push(format!("> {}", text.split_once(' ').map_or(text, |(_, rest)| rest)));
+            }
             let reply = match (verb.as_str(), next.as_str()) {
                 ("SELECT" | "EXAMINE", _) => format!("* 1 EXISTS\r\n* OK [UIDVALIDITY 7] ok\r\n{tag} OK [READ-WRITE] ok\r\n"),
                 ("UID", "SEARCH") => {
@@ -2821,6 +2974,67 @@ mod tests {
         assert!(received.lock().unwrap().iter().any(|c| c == "UID MOVE"), "déplacement tenté");
         let list = lock_cache(&cache).list("mailo", "INBOX").unwrap();
         assert!(list.iter().any(|m| m.subject == "Ancien message"), "le message est revenu dans la boîte : {list:?}");
+    }
+
+    #[test]
+    fn restaurer_dans_le_dossier_d_origine() {
+        // « Clients » → « Éléments supprimés » : le dossier d'origine est noté
+        // par Message-ID, et « Restaurer » l'y remet ; sa copie au même
+        // Message-ID supprimée d'« Éléments envoyés » y retourne ; un message
+        // supprimé ailleurs (origine inconnue) revient dans la boîte de réception.
+        let cache = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        let tree = build_folders(
+            "mailo",
+            vec![entry("INBOX", &[]), entry("Clients", &[]), entry("Sent", &["\\Sent"]), entry("Trash", &["\\Trash"])],
+        );
+        lock_cache(&cache).save_folders("mailo", &tree).unwrap();
+        let router = Router::new(vec![config("mailo")], Arc::clone(&cache));
+        let id = |mailbox: &str, uid: u32| lock_cache(&cache).id_for(ImapRef { account: "mailo".into(), mailbox: mailbox.into(), uid });
+        let item = |uid: u32, header: &str| {
+            format!("* {uid} FETCH (UID {uid} BODY[HEADER.FIELDS (MESSAGE-ID)] {{{}}}\r\n{header})\r\n", header.len())
+        };
+        let fetch = format!(
+            "{}{}{}",
+            item(5, "Message-ID: <m5@example.com>\r\n\r\n"),
+            item(6, "Message-ID: <ailleurs@example.com>\r\n\r\n"),
+            item(7, "Message-ID: <m5@example.com>\r\n\r\n")
+        );
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&received);
+        TEST_SERVER.with(|s| *s.borrow_mut() = Some(Box::new(move || Scripted::open(None, false, fetch.clone(), &log))));
+
+        router.native_move(&[id("Clients", 5)], "mailo:Trash").unwrap();
+        assert_eq!(lock_cache(&cache).trash_origins("mailo", "<m5@example.com>").unwrap(), ["Clients"]);
+        router.native_move(&[id("Sent", 7)], "mailo:Trash").unwrap();
+        assert_eq!(lock_cache(&cache).trash_origins("mailo", "<m5@example.com>").unwrap().len(), 2, "les deux dossiers notés");
+        assert_eq!(
+            lock_cache(&cache).trash_origins("mailo", "<ailleurs@example.com>").unwrap(),
+            Vec::<String>::new(),
+            "seuls les messages déplacés"
+        );
+
+        received.lock().unwrap().clear();
+        let report = router.restore(&mut Journal::default(), &[id("Trash", 5), id("Trash", 6), id("Trash", 7)]);
+        let refused = router.restore(&mut Journal::default(), &[id("INBOX", 9)]);
+        TEST_SERVER.with(|s| *s.borrow_mut() = None);
+
+        let report = report.unwrap();
+        assert_eq!(report.to_inbox, 1, "{report:?}");
+        assert!(report.report.failed.is_empty(), "{report:?}");
+        let received = received.lock().unwrap().clone();
+        let moves: Vec<&String> = received.iter().filter(|c| c.starts_with("> UID MOVE")).collect();
+        assert!(
+            moves.iter().any(|c| c.contains("Clients")) && moves.iter().any(|c| c.contains("Sent")),
+            "une copie par dossier : {moves:?}"
+        );
+        assert!(!moves.iter().any(|c| c.starts_with("> UID MOVE 5,7 ")), "pas les deux au même endroit : {moves:?}");
+        assert!(moves.iter().any(|c| c.starts_with("> UID MOVE 6 ") && c.contains("INBOX")), "{moves:?}");
+        assert_eq!(
+            lock_cache(&cache).trash_origins("mailo", "<m5@example.com>").unwrap(),
+            Vec::<String>::new(),
+            "note oubliée une fois restauré"
+        );
+        assert!(matches!(refused, Err(MailError::InvalidTarget(_))), "hors des éléments supprimés : {refused:?}");
     }
 
     #[test]

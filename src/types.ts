@@ -166,6 +166,13 @@ export interface SendReport {
   warning: string | null;
 }
 
+/** Bilan de « Restaurer » (hors d'« Éléments supprimés »). */
+export interface RestoreReport {
+  report: MoveReport;
+  /** Messages sans dossier d'origine connu, remis dans la boîte de réception. */
+  toInbox: number;
+}
+
 export interface MoveReport {
   moved: { oldId: number; newId: number }[];
   failed: { id: number; reason: string }[];

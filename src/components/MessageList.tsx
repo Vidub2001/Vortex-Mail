@@ -13,6 +13,7 @@ import {
 } from "@fluentui/react-components";
 import {
   ArrowSortDownLines16Regular,
+  ArrowUndo16Regular,
   Attach16Regular,
   Delete16Regular,
   Dismiss16Regular,
@@ -73,6 +74,12 @@ interface Props {
   onQuickSeen: (m: MessageSummary) => void;
   onQuickFlag: (m: MessageSummary) => void;
   onQuickDelete: (m: MessageSummary) => void;
+  /** Clic droit › Supprimer (ce message, ou la sélection qui le contient). */
+  onMenuDelete: (m: MessageSummary) => void;
+  /** Clic droit › Restaurer, pour un message d'« Éléments supprimés » (ou la sélection qui le contient). */
+  onMenuRestore: (m: MessageSummary) => void;
+  /** Le message est dans « Éléments supprimés » : « Restaurer » proposé. */
+  restorable: (m: MessageSummary) => boolean;
   /** Clic droit › Créer une règle (expéditeur ou objet du message). */
   onCreateRule: (m: MessageSummary, from: "sender" | "subject") => void;
   /** Enregistrer en `.eml` (ce message, ou la sélection qui le contient : lot E8a). */
@@ -278,7 +285,8 @@ export function MessageList(p: Props) {
         onClick: () => p.onCreateRule(m, "subject"),
       },
       { label: t("Enregistrer (.eml)"), icon: <Save16Regular />, onClick: () => p.onExport(m) },
-      { label: t("Supprimer"), icon: <Delete16Regular />, danger: true, onClick: () => p.onQuickDelete(m) },
+      ...(p.restorable(m) ? [{ label: t("Restaurer"), icon: <ArrowUndo16Regular />, onClick: () => p.onMenuRestore(m) }] : []),
+      { label: t("Supprimer"), icon: <Delete16Regular />, danger: true, onClick: () => p.onMenuDelete(m) },
     ];
   };
   const searching = p.searchMode !== null;

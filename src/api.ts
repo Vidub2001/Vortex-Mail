@@ -18,6 +18,7 @@ import type {
   Message,
   MessageSummary,
   MoveReport,
+  RestoreReport,
   PimCollection,
   PimSyncReport,
   PrefetchReport,
@@ -151,6 +152,10 @@ export const api = {
   /** Vide définitivement la corbeille ou le courrier indésirable ; nombre de messages supprimés. */
   emptyFolder: (folderId: string): Promise<number> =>
     inTauri ? invoke("empty_folder", { folderId }) : Promise.reject(mock.desktopOnly),
+
+  /** Remet des messages d'« Éléments supprimés » dans leur dossier d'origine (sinon la boîte de réception). */
+  restoreMessages: (ids: number[]): Promise<RestoreReport> =>
+    inTauri ? invoke("restore_messages", { ids }) : mock.restoreMessages(ids),
 
   /** Supprime définitivement des messages de la corbeille ou du courrier indésirable ; nombre supprimé. */
   deleteForever: (ids: number[]): Promise<number> =>

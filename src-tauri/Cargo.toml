@@ -1,6 +1,6 @@
 [package]
 name = "vortexmail"
-version = "0.3.1"
+version = "0.3.2"
 description = "Client mail multi-comptes IMAP, avec agenda et contacts"
 edition = "2021"
 # Version minimale de Rust : celle qu'exige mail-parser 1.0.

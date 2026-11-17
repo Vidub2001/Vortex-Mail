@@ -327,4 +327,5 @@ pub(super) static ES: &[(&str, &str)] = &[
     ("Certificat épinglé refusé pour {host} : il n'est admis que pour Proton Mail Bridge, sur cet ordinateur (127.0.0.1).", "Certificado fijado rechazado para {host}: solo se admite para Proton Mail Bridge, en este equipo (127.0.0.1)."),
     ("Le certificat de Proton Mail Bridge a changé (empreinte {found}, {pin} attendue). Si vous avez réinstallé ou réinitialisé Bridge, modifiez le compte et acceptez le nouveau certificat ; sinon, ne vous connectez pas.", "El certificado de Proton Mail Bridge ha cambiado (huella {found}, se esperaba {pin}). Si ha reinstalado o restablecido Bridge, modifique la cuenta y acepte el nuevo certificado; si no, no se conecte."),
     ("Proton Mail Bridge ne répond pas sur cet ordinateur (port {port}). Lancez Bridge et connectez-y votre compte Proton, puis réessayez.", "Proton Mail Bridge no responde en este equipo (puerto {port}). Inicie Bridge, conecte en él su cuenta de Proton y vuelva a intentarlo."),
+    ("Seuls les éléments supprimés peuvent être restaurés.", "Solo se pueden restaurar los elementos eliminados."),
 ];
