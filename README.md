@@ -52,7 +52,7 @@ Releases are built from this repository by GitHub Actions. Each one comes with `
 
 Windows files are not signed yet, so Windows may show a warning on first install.
 
-> **Status:** version 0.2.3, used every day by its author. Feedback and bug reports are welcome.
+> **Status:** version 0.2.4, used every day by its author. Feedback and bug reports are welcome.
 
 ## Features
 
