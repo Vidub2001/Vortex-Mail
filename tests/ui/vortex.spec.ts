@@ -228,3 +228,13 @@ test("I3 : Proton Mail par Bridge, certificat confirmé avant le mot de passe", 
   await expect(settings.getByRole("group", { name: "Proton Mail Bridge" })).toBeVisible();
   await expect(settings.getByText(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/)).toBeVisible();
 });
+
+test("Gmail : mot de passe d'application dans l'assistant, application Google par le formulaire complet", async ({ page }) => {
+  const settings = await wizard(page, "camille@gmail.com");
+  await expect(settings.getByLabel("Mot de passe d'application")).toBeVisible();
+  await settings.getByLabel("Mot de passe d'application").fill("secret");
+  await expect(settings.getByRole("button", { name: "Se connecter", exact: true })).toBeEnabled();
+  await settings.getByRole("button", { name: "Se connecter avec Google" }).click();
+  await expect(settings.getByRole("heading", { name: "Ajouter un compte IMAP" })).toBeVisible();
+  await expect(settings.getByLabel("Adresse e-mail")).toHaveValue("camille@gmail.com");
+});

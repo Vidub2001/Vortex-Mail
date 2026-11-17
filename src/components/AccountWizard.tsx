@@ -50,7 +50,9 @@ const serverLine = (s: DetectedServer) => `${s.host}:${s.port} (${securityLabel(
 
 /** Compte construit à partir des réglages trouvés ; `pin` : empreinte du certificat de Bridge confirmée, ou vide. */
 export function configFrom(found: Detected, email: string, displayName: string, name: string, color: string, password: string, pin = ""): AccountConfig {
-  const auth: AuthMethod = found.login === "google" || found.login === "outlook" ? "oauth2" : "normal";
+  // Gmail : mot de passe d'application par défaut ; la connexion avec Google passe
+  // par le formulaire complet (application Google de l'utilisateur), voir `withGoogle`.
+  const auth: AuthMethod = found.login === "outlook" ? "oauth2" : "normal";
   const server = (s: DetectedServer): ServerConfig => ({
     host: s.host,
     port: s.port,
@@ -119,6 +121,13 @@ export function AccountWizard({ color, onManual, onCancel, onSaved, notify }: Pr
     onManual(configFrom(unknown, address, displayName.trim(), defaultName(null, address), color, ""));
   };
 
+  /** Gmail avec agenda et contacts : formulaire complet en connexion Google (`OAuth2`). */
+  const withGoogle = () => {
+    if (!found) return;
+    const config = configFrom(found, address, displayName.trim(), name.trim() || defaultName(found, address), color, "");
+    onManual({ ...config, imap: { ...config.imap, auth: "oauth2" }, smtp: { ...config.smtp, auth: "oauth2" } });
+  };
+
   const search = async () => {
     setStep({ kind: "searching" });
     setReport(null);
@@ -163,7 +172,9 @@ export function AccountWizard({ color, onManual, onCancel, onSaved, notify }: Pr
     </div>
   );
 
-  const browserLogin = found?.login === "google" || found?.login === "outlook";
+  const browserLogin = found?.login === "outlook";
+  const google = found?.login === "google";
+  const appPassword = google || found?.login === "appPassword";
   const bridge = found?.login === "protonBridge";
 
   return (
@@ -275,9 +286,17 @@ export function AccountWizard({ color, onManual, onCancel, onSaved, notify }: Pr
             {browserLogin && (
               <MessageBar intent="info" layout="multiline">
                 <MessageBarBody>
-                  {found.login === "google"
-                    ? t("Connexion avec Google dans votre navigateur : aucun mot de passe n'est saisi ici. Continuez pour la terminer.")
-                    : t("Connexion à Outlook.com dans votre navigateur : aucun mot de passe n'est saisi ici. Continuez pour la terminer.")}
+                  {t("Connexion à Outlook.com dans votre navigateur : aucun mot de passe n'est saisi ici. Continuez pour la terminer.")}
+                </MessageBarBody>
+              </MessageBar>
+            )}
+
+            {google && (
+              <MessageBar intent="info" layout="multiline">
+                <MessageBarBody>
+                  {t(
+                    "Courrier seul : collez un mot de passe d'application Google ci-dessous. Courrier, agenda et contacts : « Se connecter avec Google » ouvre le formulaire complet, pour votre propre application Google.",
+                  )}
                 </MessageBarBody>
               </MessageBar>
             )}
@@ -285,13 +304,15 @@ export function AccountWizard({ color, onManual, onCancel, onSaved, notify }: Pr
             {!browserLogin && (!bridge || trusted) && (
               <div className="form-row wizard-row">
                 <Field
-                  label={bridge ? t("Mot de passe de Bridge") : found.login === "appPassword" ? t("Mot de passe d'application") : t("Mot de passe")}
+                  label={bridge ? t("Mot de passe de Bridge") : appPassword ? t("Mot de passe d'application") : t("Mot de passe")}
                   hint={
                     bridge
                       ? t("Affiché par Bridge dans les détails de votre compte (réglages IMAP et SMTP) : ce n'est pas votre mot de passe Proton.")
-                      : found.login === "appPassword"
-                        ? t("À créer dans les réglages de sécurité de votre compte : votre mot de passe habituel est refusé.")
-                        : undefined
+                      : google
+                        ? t("À créer sur myaccount.google.com/apppasswords (validation en deux étapes requise) : votre mot de passe Google est refusé.")
+                        : appPassword
+                          ? t("À créer dans les réglages de sécurité de votre compte : votre mot de passe habituel est refusé.")
+                          : undefined
                   }
                   required
                 >
@@ -329,7 +350,7 @@ export function AccountWizard({ color, onManual, onCancel, onSaved, notify }: Pr
             <div className="test-report failure">
               {check(t("IMAP :"), report.imap)}
               {check(t("SMTP :"), report.smtp)}
-              {found?.login === "appPassword" && <p className="muted small">{t("Ce fournisseur demande un mot de passe d'application, pas votre mot de passe habituel.")}</p>}
+              {appPassword && <p className="muted small">{t("Ce fournisseur demande un mot de passe d'application, pas votre mot de passe habituel.")}</p>}
             </div>
           )}
         </div>
@@ -355,6 +376,11 @@ export function AccountWizard({ color, onManual, onCancel, onSaved, notify }: Pr
         {found && browserLogin && (
           <Button appearance="primary" onClick={manual}>
             {t("Continuer")}
+          </Button>
+        )}
+        {google && (
+          <Button onClick={withGoogle} disabled={busy}>
+            {t("Se connecter avec Google")}
           </Button>
         )}
         <Button onClick={onCancel} disabled={busy}>

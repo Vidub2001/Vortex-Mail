@@ -917,7 +917,6 @@ const es: Record<string, string> = {
   "Serveurs hors de votre domaine": "Servidores fuera de su dominio",
   "Le DNS du domaine désigne des serveurs d'un autre domaine, souvent ceux d'un hébergeur. Vérifiez qu'ils sont bien ceux de votre fournisseur avant d'y envoyer votre mot de passe.": "El DNS del dominio indica servidores de otro dominio, a menudo los de un proveedor de alojamiento. Compruebe que son realmente los de su proveedor antes de enviarles su contraseña.",
   "Proton Mail passe par Proton Mail Bridge": "Proton Mail pasa por Proton Mail Bridge",
-  "Connexion avec Google dans votre navigateur : aucun mot de passe n'est saisi ici. Continuez pour la terminer.": "Inicio de sesión con Google en su navegador: aquí no se introduce ninguna contraseña. Continúe para terminar.",
   "Connexion à Outlook.com dans votre navigateur : aucun mot de passe n'est saisi ici. Continuez pour la terminer.": "Inicio de sesión en Outlook.com en su navegador: aquí no se introduce ninguna contraseña. Continúe para terminar.",
   "Mot de passe d'application": "Contraseña de aplicación",
   "À créer dans les réglages de sécurité de votre compte : votre mot de passe habituel est refusé.": "Créela en la configuración de seguridad de su cuenta: su contraseña habitual se rechaza.",
@@ -937,6 +936,9 @@ const es: Record<string, string> = {
   "Mot de passe de Bridge": "Contraseña de Bridge",
   "Affiché par Bridge dans les détails de votre compte (réglages IMAP et SMTP) : ce n'est pas votre mot de passe Proton.": "Lo muestra Bridge en los detalles de su cuenta (configuración IMAP y SMTP): no es su contraseña de Proton.",
   "Bridge chiffre la connexion avec un certificat qui lui est propre. Vortex Mail retient son empreinte et refuse la connexion si elle change ; après une réinstallation de Bridge, relisez-le ici.": "Bridge cifra la conexión con un certificado propio. Vortex Mail conserva su huella y rechaza la conexión si cambia; tras reinstalar Bridge, vuelva a leerlo aquí.",
+  // Gmail dans l'assistant : mot de passe d'application par défaut.
+  "Courrier seul : collez un mot de passe d'application Google ci-dessous. Courrier, agenda et contacts : « Se connecter avec Google » ouvre le formulaire complet, pour votre propre application Google.": "Solo correo: pegue abajo una contraseña de aplicación de Google. Correo, calendario y contactos: «Iniciar sesión con Google» abre el formulario completo, para su propia aplicación de Google.",
+  "À créer sur myaccount.google.com/apppasswords (validation en deux étapes requise) : votre mot de passe Google est refusé.": "Créela en myaccount.google.com/apppasswords (se requiere la verificación en dos pasos): su contraseña de Google se rechaza.",
 };
 
 export default es;
