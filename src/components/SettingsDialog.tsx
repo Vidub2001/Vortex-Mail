@@ -1,5 +1,7 @@
 import { GeneralSection } from "./GeneralSection";
-import { PRESETS, isOutlookDomain } from "../providers";
+import { isOutlookDomain } from "../providers";
+import { AccountWizard } from "./AccountWizard";
+import { BridgeCertificate, isLoopback } from "./BridgeCertificate";
 import { AgendaSection } from "./AgendaSection";
 import { RulesSection } from "./RulesSection";
 import { SmimeSection } from "./SmimeSection";
@@ -105,26 +107,6 @@ const DEFAULT_PORTS: Record<"imap" | "smtp", Record<Security, number>> = {
   imap: { sslTls: 993, startTls: 143, auto: 993, none: 143 },
   smtp: { sslTls: 465, startTls: 587, auto: 465, none: 25 },
 };
-
-function emptyServer(kind: "imap" | "smtp"): ServerConfig {
-  return { host: "", port: DEFAULT_PORTS[kind].sslTls, security: "sslTls", auth: "normal", username: "", password: "" };
-}
-
-function emptyAccount(color: string): AccountConfig {
-  return {
-    id: "",
-    name: "",
-    email: "",
-    displayName: "",
-    color,
-    imap: emptyServer("imap"),
-    smtp: emptyServer("smtp"),
-    smtpSameCredentials: true,
-    oauthClientId: "",
-    davUrl: "",
-    cardUrl: "",
-  };
-}
 
 type Notify = (title: string, body?: string, intent?: "success" | "error" | "info") => void;
 
@@ -347,7 +329,8 @@ function MailSection({ accounts }: { accounts: Account[] }) {
 
 // ------------------------------------------------------------------ rubrique Comptes
 
-type View = { kind: "list" } | { kind: "add" } | { kind: "edit"; config: AccountConfig };
+/** Liste, assistant d'ajout (lot I2), formulaire complet prérempli par l'assistant, ou modification. */
+type View = { kind: "list" } | { kind: "add" } | { kind: "manual"; config: AccountConfig } | { kind: "edit"; config: AccountConfig };
 
 function AccountsSection({
   open,
@@ -400,10 +383,22 @@ function AccountsSection({
     setView({ kind: "list" });
   };
 
+  if (view.kind === "add") {
+    return (
+      <AccountWizard
+        color={COLORS[configs.length % COLORS.length]}
+        onManual={(config) => setView({ kind: "manual", config })}
+        onCancel={() => setView({ kind: "list" })}
+        onSaved={done}
+        notify={notify}
+      />
+    );
+  }
+
   if (view.kind !== "list") {
     return (
       <AccountForm
-        initial={view.kind === "edit" ? view.config : emptyAccount(COLORS[configs.length % COLORS.length])}
+        initial={view.config}
         editing={view.kind === "edit"}
         onCancel={() => setView({ kind: "list" })}
         onSaved={done}
@@ -654,20 +649,15 @@ function AccountForm({
     setReport(null);
   };
 
-  /** À la saisie de l'adresse : identifiant, nom et serveurs connus (seulement les champs vides). */
+  /** À la saisie de l'adresse : identifiant et nom (seulement les champs vides) ; les serveurs viennent de l'assistant. */
   const applyEmail = () => {
     const email = form.email.trim();
     const domain = email.split("@")[1]?.toLowerCase() ?? "";
-    const preset = PRESETS[domain];
     setForm((f) => {
       const next = { ...f, imap: { ...f.imap }, smtp: { ...f.smtp } };
       if (!next.imap.username) next.imap.username = email;
       if (!next.smtp.username) next.smtp.username = email;
       if (!next.name && domain) next.name = domain.split(".")[0].replace(/^./, (c) => c.toUpperCase());
-      if (preset) {
-        if (!next.imap.host) [next.imap.host, next.imap.port, next.imap.security] = preset.imap;
-        if (!next.smtp.host) [next.smtp.host, next.smtp.port, next.smtp.security] = preset.smtp;
-      }
       // Outlook.com : connexion OAuth2 obligatoire, mêmes identifiants pour l'envoi.
       if (isOutlookDomain(domain)) {
         next.imap.auth = "oauth2";
@@ -983,6 +973,27 @@ function AccountForm({
             />,
           )}
         </div>
+
+        {/* Proton Mail Bridge sur cet ordinateur : certificat épinglé (lot I3). */}
+        {isLoopback(form.imap.host) && (
+          <fieldset className="account-fieldset">
+            <legend>Proton Mail Bridge</legend>
+            <p className="muted small">
+              {t(
+                "Bridge chiffre la connexion avec un certificat qui lui est propre. Vortex Mail retient son empreinte et refuse la connexion si elle change ; après une réinstallation de Bridge, relisez-le ici.",
+              )}
+            </p>
+            <BridgeCertificate
+              port={form.imap.port}
+              security={form.imap.security}
+              value={form.imap.pinnedCert ?? ""}
+              onRead={(fingerprint) => {
+                updateServer("imap", { pinnedCert: fingerprint });
+                updateServer("smtp", { pinnedCert: fingerprint });
+              }}
+            />
+          </fieldset>
+        )}
 
         {/* Outlook.com : agenda et contacts connectés avec le courrier (bouton de connexion ci-dessus). */}
         {!oauth && !gmailOauth && (

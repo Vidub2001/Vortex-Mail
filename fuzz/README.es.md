@@ -22,6 +22,7 @@ Objetivos de `cargo-fuzz` para todo lo que llega del exterior (lote 8 del plan d
 | `oauth` | la vuelta de la página de inicio de sesión y el token de identidad | `oauth.rs` |
 | `headers` | las cabeceras tomadas de un mensaje recibido para responderlo | `crates/mail-core` |
 | `mbox` | un archivo importado, `.eml` o `.mbox`: troceado, reescrito en mbox, releído (lote E8a) | `crates/mail-core` (`mbox.rs`) |
+| `autoconfig` | un documento `clientConfig` publicado por un dominio, o la copia de la ISPDB: servidores elegidos, identificador, nombre y ayuda (lote I1) | `autoconfig.rs`, `xml.rs` |
 | `smime_verify` | un mensaje firmado con S/MIME: sus dos mitades, luego la firma CMS y la cadena de certificados (lote G2) | `crates/smime` (`parts.rs`, `verify.rs`, `chain.rs`) |
 | `smime_decrypt` | un mensaje cifrado con S/MIME: reconocido, devuelto a DER, descifrado con la clave de prueba (lote G2) | `crates/smime` (`ber.rs`, `decrypt.rs`) |
 | `smime_cert` | un certificado recibido: resumen, firmante, cifrado posible hacia él (lote G2) | `crates/smime` (`cert.rs`, `encrypt.rs`) |

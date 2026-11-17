@@ -12,7 +12,7 @@ Free desktop email client for Linux and Windows, built with Rust and Tauri.
 ![Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0b2545)
 ![Rust | Tauri 2](https://img.shields.io/badge/Rust-Tauri%202-ef5a5f)
 
-[**Download**](https://github.com/Vidub2001/Vortex-Mail/releases/latest) · [Website](https://vortexmail.fr) · [Build guide](docs/COMPILATION.en.md) · [Threat model](docs/MODELE-MENACE.en.md)
+[**Download**](https://github.com/Vidub2001/Vortex-Mail/releases/latest) · [Website](https://vortexmail.fr) · [FAQ](https://vortexmail.fr/faq.html) · [Guides](https://vortexmail.fr/guides/) · [Build guide](docs/COMPILATION.en.md) · [Threat model](docs/MODELE-MENACE.en.md)
 
 [Français](README.fr.md) · **English** · [Español](README.es.md)
 
@@ -52,7 +52,7 @@ Releases are built from this repository by GitHub Actions. Each one comes with `
 
 Windows files are not signed yet, so Windows may show a warning on first install.
 
-> **Status:** version 0.2.4, used every day by its author. Feedback and bug reports are welcome.
+> **Status:** version 0.3.0, used every day by its author. Feedback and bug reports are welcome.
 
 ## Features
 
@@ -159,8 +159,13 @@ Release builds, installers, the Windows portable ZIP and troubleshooting are cov
 
 ## Adding an account
 
-Settings (gear icon) → Accounts → "Add an account". For well-known providers (Gmail,
-Outlook.com, Mailo…) the server settings are filled in automatically. Connection types:
+Settings (gear icon) → Accounts → "Add account". Your name and address are enough: Vortex Mail
+looks up the settings (known providers, a built-in copy of Thunderbird's provider database, the
+domain's DNS, the file published by the domain, then usual names checked without a password),
+shows where they came from, and tests the account before adding it. No request goes to a third-party
+service, and servers outside your domain are flagged. "Edit by hand" opens the full form,
+pre-filled. Proton Mail goes through Proton Mail Bridge: its certificate, specific to your computer,
+is read, confirmed once, then required on every connection. Connection types:
 
 | Choice   | IMAP | SMTP | How it works |
 |----------|------|------|--------------|

@@ -47,6 +47,11 @@ pub struct ServerConfig {
     /// En mémoire seulement ; jamais écrit dans le fichier.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub password: String,
+    /// Empreinte SHA-256 du certificat attendu (`AA:BB:…`), pour Proton Mail Bridge
+    /// sur cet ordinateur seulement (lot I3). Vide : vérification habituelle du
+    /// certificat et du nom par la bibliothèque TLS du système.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub pinned_cert: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +101,21 @@ impl AccountConfig {
             }
             if s.auth != AuthMethod::OAuth2 && s.password.is_empty() {
                 return Err(tr!("{label} : identifiant et mot de passe requis", label = label));
+            }
+            if !s.pinned_cert.is_empty() {
+                // Certificat épinglé : jamais une exception TLS générale (lot I3).
+                if !crate::transport::is_loopback(s.host.trim()) {
+                    return Err(tr!(
+                        "{label} : un certificat épinglé n'est admis que pour Proton Mail Bridge, sur cet ordinateur (127.0.0.1).",
+                        label = label
+                    ));
+                }
+                if !crate::transport::is_fingerprint(&s.pinned_cert) {
+                    return Err(tr!("{label} : empreinte de certificat invalide", label = label));
+                }
+                if matches!(s.security, Security::Auto | Security::Unencrypted) {
+                    return Err(tr!("{label} : choisissez SSL/TLS ou STARTTLS pour un certificat épinglé", label = label));
+                }
             }
             Ok(())
         };
@@ -159,7 +179,12 @@ pub(crate) fn save(path: &Path, accounts: &[AccountConfig]) -> Result<(), String
 }
 
 /// Même serveur et même identifiant : un mot de passe enregistré peut resservir
-/// (hôte, port et identifiant inchangés).
+/// (hôte, port, identifiant et certificat épinglé inchangés). Un autre certificat
+/// de Proton Mail Bridge peut être celui d'un autre programme à l'écoute sur le
+/// même port (lot I3) : le mot de passe de Bridge est alors redemandé.
 pub(crate) fn same_server(a: &ServerConfig, b: &ServerConfig) -> bool {
-    a.host.trim().eq_ignore_ascii_case(b.host.trim()) && a.port == b.port && a.username == b.username
+    a.host.trim().eq_ignore_ascii_case(b.host.trim())
+        && a.port == b.port
+        && a.username == b.username
+        && a.pinned_cert.trim().eq_ignore_ascii_case(b.pinned_cert.trim())
 }

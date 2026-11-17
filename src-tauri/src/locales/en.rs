@@ -1,6 +1,9 @@
 //! Traductions anglaises des textes de l'application (clé : texte français).
 
 pub(super) static EN: &[(&str, &str)] = &[
+    ("Adresse invalide.", "Invalid address."),
+    ("Ce domaine est hébergé par O365 : les comptes professionnels et scolaires ne sont pas encore pris en charge.", "This domain is hosted by O365: work and school accounts are not supported yet."),
+    ("Aucun réglage trouvé pour {domain} : saisissez les serveurs à la main.", "No settings found for {domain}: enter the servers by hand."),
     ("Aucun contact dans ce fichier.", "No contacts in this file."),
     ("message", "message"),
     ("dossier", "folder"),
@@ -315,4 +318,13 @@ pub(super) static EN: &[(&str, &str)] = &[
     ("Certificat révoqué par son autorité : {addresses}. Demandez-leur un nouveau message signé avec leur nouveau certificat.", "Certificate revoked by its authority: {addresses}. Ask them for a new signed message with their new certificate."),
     ("liste illisible", "unreadable list"),
     ("Message non envoyé", "Message not sent"),
+    // Proton Mail Bridge, certificat épinglé (lot I3).
+    ("{label} : un certificat épinglé n'est admis que pour Proton Mail Bridge, sur cet ordinateur (127.0.0.1).", "{label}: a pinned certificate is only allowed for Proton Mail Bridge, on this computer (127.0.0.1)."),
+    ("{label} : empreinte de certificat invalide", "{label}: invalid certificate fingerprint"),
+    ("{label} : choisissez SSL/TLS ou STARTTLS pour un certificat épinglé", "{label}: choose SSL/TLS or STARTTLS for a pinned certificate"),
+    ("choisissez SSL/TLS ou STARTTLS pour un certificat épinglé", "choose SSL/TLS or STARTTLS for a pinned certificate"),
+    ("Proton Mail Bridge n'a présenté aucun certificat.", "Proton Mail Bridge did not present any certificate."),
+    ("Certificat épinglé refusé pour {host} : il n'est admis que pour Proton Mail Bridge, sur cet ordinateur (127.0.0.1).", "Pinned certificate refused for {host}: it is only allowed for Proton Mail Bridge, on this computer (127.0.0.1)."),
+    ("Le certificat de Proton Mail Bridge a changé (empreinte {found}, {pin} attendue). Si vous avez réinstallé ou réinitialisé Bridge, modifiez le compte et acceptez le nouveau certificat ; sinon, ne vous connectez pas.", "The Proton Mail Bridge certificate has changed (fingerprint {found}, {pin} expected). If you reinstalled or reset Bridge, edit the account and accept the new certificate; otherwise, do not connect."),
+    ("Proton Mail Bridge ne répond pas sur cet ordinateur (port {port}). Lancez Bridge et connectez-y votre compte Proton, puis réessayez.", "Proton Mail Bridge is not answering on this computer (port {port}). Start Bridge and sign in to your Proton account in it, then try again."),
 ];

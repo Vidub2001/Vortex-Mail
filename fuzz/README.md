@@ -22,6 +22,7 @@ Cibles `cargo-fuzz` pour tout ce qui arrive de l'extérieur (lot 8 du plan du pr
 | `oauth` | le retour de la page de connexion et le jeton d'identité | `oauth.rs` |
 | `headers` | les en-têtes repris d'un message reçu pour y répondre | `crates/mail-core` |
 | `mbox` | un fichier importé, `.eml` ou `.mbox` : découpé, réécrit en mbox, relu (lot E8a) | `crates/mail-core` (`mbox.rs`) |
+| `autoconfig` | un document `clientConfig` publié par un domaine, ou la copie de l'ISPDB : serveurs choisis, identifiant, nom et aide (lot I1) | `autoconfig.rs`, `xml.rs` |
 | `smime_verify` | un message signé en S/MIME : ses deux moitiés, puis la signature CMS et la chaîne de certificats (lot G2) | `crates/smime` (`parts.rs`, `verify.rs`, `chain.rs`) |
 | `smime_decrypt` | un message chiffré en S/MIME : reconnu, remis en DER, déchiffré avec la clé de test (lot G2) | `crates/smime` (`ber.rs`, `decrypt.rs`) |
 | `smime_cert` | un certificat reçu : résumé, signataire, chiffrement possible vers lui (lot G2) | `crates/smime` (`cert.rs`, `encrypt.rs`) |

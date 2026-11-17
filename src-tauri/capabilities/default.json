@@ -61,6 +61,8 @@
     "allow-import-messages",
     "allow-export-pim",
     "allow-import-pim",
+    "allow-detect-account",
+    "allow-bridge-certificate",
     "allow-delete-forever",
     "allow-oauth-status",
     "allow-google-sign-in",

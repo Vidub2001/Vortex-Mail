@@ -1189,6 +1189,58 @@ body.resizing iframe {
   align-items: start;
 }
 
+/* Assistant d'ajout de compte (lot I2). */
+.wizard-search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 2px;
+}
+
+.wizard-search p {
+  margin: 0;
+  max-width: 60ch;
+}
+
+.wizard-card > p {
+  margin: 0;
+}
+
+/* Serveurs trouvés : intitulé à gauche, valeur à droite. */
+.wizard-servers {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0;
+}
+
+.wizard-servers dt {
+  color: var(--colorNeutralForeground3);
+}
+
+.wizard-servers dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Champs de l'assistant alignés en haut : l'aide sous un champ ne décale pas son voisin. */
+.form-row.wizard-row {
+  align-items: start;
+}
+
+/* Empreinte du certificat de Proton Mail Bridge (lot I3) : chiffres alignés. */
+.wizard-servers dd.fingerprint {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.bridge-cert {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .settings-status {
   display: flex;
   flex-direction: column;

@@ -21,24 +21,32 @@ PYTHON ?= python3
 OUT    := target/audit
 CLIPPY_JSON := $(OUT)/clippy.json
 
-.PHONY: audit ci front-test ui-test ui-test-if-ready audit-baseline audit-tools deny npm-audit semgrep semgrep-test \
+.PHONY: audit ci ispdb ispdb-age front-test ui-test ui-test-if-ready audit-baseline audit-tools deny npm-audit semgrep semgrep-test \
         fmt clippy clippy-strict panic-unwind test corpus corpus-test sonar fuzz hooks help
 
 help:
 	@sed -n '2,18p' Makefile
 
-audit: audit-tools deny npm-audit semgrep fmt clippy panic-unwind test corpus front-test ui-test-if-ready
+audit: audit-tools deny npm-audit ispdb-age semgrep fmt clippy panic-unwind test corpus front-test ui-test-if-ready
 	@echo
 	@echo "✔ make audit : vert (findings connus acceptés temporairement, voir security/)"
 
 # Intégration continue (lot G5) : les mêmes contrôles, mais un Chromium absent
 # fait échouer le build au lieu de sauter les tests de l'interface.
-ci: audit-tools deny npm-audit semgrep fmt clippy panic-unwind test corpus front-test ui-test
+ci: audit-tools deny npm-audit ispdb-age semgrep fmt clippy panic-unwind test corpus front-test ui-test
 	@echo
 	@echo "✔ make ci : vert"
 
 audit-tools:
 	@$(PYTHON) scripts/audit/check_tools.py
+
+# Copie de l'ISPDB de Thunderbird (lot I1) : `make ispdb` la rafraîchit (réseau),
+# `make audit` refuse une copie de plus de 60 jours.
+ispdb:
+	$(PYTHON) scripts/ispdb.py maj
+
+ispdb-age:
+	@$(PYTHON) scripts/ispdb.py age 60
 
 $(OUT):
 	@mkdir -p $(OUT)

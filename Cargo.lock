@@ -5727,7 +5727,7 @@ dependencies = [
 
 [[package]]
 name = "vortexmail"
-version = "0.2.4"
+version = "0.3.0"
 dependencies = [
  "ammonia",
  "getrandom 0.2.17",
@@ -5739,6 +5739,8 @@ dependencies = [
  "mail-parser",
  "native-tls",
  "opener",
+ "p12-keystore",
+ "rcgen",
  "rusqlite",
  "schannel",
  "serde",

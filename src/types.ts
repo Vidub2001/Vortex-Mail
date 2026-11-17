@@ -236,6 +236,8 @@ export interface ServerConfig {
   auth: AuthMethod;
   username: string;
   password: string;
+  /** Empreinte SHA-256 du certificat de Proton Mail Bridge (127.0.0.1 seulement, lot I3) ; vide : vérification habituelle. */
+  pinnedCert?: string;
 }
 
 export interface AccountConfig {
@@ -383,6 +385,31 @@ export interface FolderListing {
 export interface CheckResult {
   ok: boolean;
   message: string;
+}
+
+/** Réglages trouvés d'après l'adresse (lot I1, commande `detect_account`). */
+export type DetectSource = "builtin" | "ispdb" | "mx" | "srv" | "domain" | "guess";
+/** Connexion : mot de passe, mot de passe d'application, navigateur (Google, Outlook.com) ou Proton Mail Bridge. */
+export type DetectLogin = "password" | "appPassword" | "google" | "outlook" | "protonBridge";
+
+export interface DetectedServer {
+  host: string;
+  port: number;
+  security: Security;
+}
+
+export interface Detected {
+  source: DetectSource;
+  /** Nom du fournisseur ; vide s'il n'est pas connu. */
+  provider: string;
+  imap: DetectedServer;
+  smtp: DetectedServer;
+  username: string;
+  login: DetectLogin;
+  /** Serveurs désignés par le DNS hors du domaine de l'adresse : à signaler. */
+  outsideDomain: boolean;
+  /** Page d'aide du fournisseur (HTTPS), ou vide. */
+  helpUrl: string;
 }
 
 export interface TestReport {

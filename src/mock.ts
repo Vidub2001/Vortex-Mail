@@ -1,7 +1,7 @@
 // Maquette JS utilisée seulement hors de Tauri (aperçu navigateur).
 // Mêmes règles que le Rust : même compte = déplacement simple,
 // autre compte = copie avec nouvel identifiant puis suppression de la source.
-import type { Account, AttachmentInput, CalEvent, Contact, Draft, DraftContent, PimCollection, Suggestion, Folder, FolderListing, FolderRole, Message, MessageSummary, MoveReport, SavedDraft, TestReport } from "./types";
+import type { Account, AccountConfig, AttachmentInput, CalEvent, Contact, Draft, DraftContent, PimCollection, Suggestion, Folder, FolderListing, FolderRole, Message, MessageSummary, MoveReport, SavedDraft, TestReport, Detected } from "./types";
 
 const now = Math.floor(Date.now() / 1000);
 const h = (hours: number) => now - hours * 3600;
@@ -101,11 +101,52 @@ export const listFolders = (): Promise<FolderListing> =>
 
 export const desktopOnly = "Disponible uniquement dans l'application (npm run tauri dev).";
 
-export const testAccount = (): Promise<TestReport> =>
-  delay({
-    imap: { ok: false, message: desktopOnly },
-    smtp: { ok: false, message: desktopOnly },
-  });
+/** Test d'un compte : réussi avec le mot de passe « secret » (parcours de l'assistant, lot I2). */
+export const testAccount = (config: AccountConfig): Promise<TestReport> => {
+  const ok = config.imap.password === "secret";
+  const refused = { ok: false, message: "Identifiant ou mot de passe refusé (AUTHENTICATIONFAILED)" };
+  return delay({ imap: ok ? { ok: true, message: "connexion réussie" } : refused, smtp: ok ? { ok: true, message: "connexion réussie" } : refused });
+};
+
+/** Empreinte du certificat de Proton Mail Bridge de la maquette (lot I3). */
+export const bridgeCertificate = () =>
+  delay(Array.from({ length: 32 }, (_, i) => ((i * 37 + 11) % 256).toString(16).toUpperCase().padStart(2, "0")).join(":"));
+
+/** Comptes ajoutés dans l'aperçu navigateur (lot I2) ; la liste des comptes de la maquette ne change pas. */
+const accountConfigs: AccountConfig[] = [];
+
+export const listAccountConfigs = () => delay(accountConfigs);
+
+export function addAccount(config: AccountConfig): Promise<Account> {
+  const account = { id: `ajout-${accountConfigs.length + 1}`, name: config.name, email: config.email, color: config.color };
+  accountConfigs.push({ ...config, id: account.id, imap: { ...config.imap, password: "" }, smtp: { ...config.smtp, password: "" } });
+  return delay(account);
+}
+
+/**
+ * Réglages trouvés par la maquette (lot I2) : `exemple.fr` dans la base de
+ * Thunderbird, `hebergeur.example` par le DNS hors du domaine, `gmail.com` par
+ * Google, `proton.me` par Bridge (lot I3) ; tout autre domaine : rien trouvé.
+ */
+export function detectAccount(email: string): Promise<Detected> {
+  const domain = email.split("@")[1]?.toLowerCase() ?? "";
+  const tls = (host: string, port: number) => ({ host, port, security: "sslTls" as const });
+  const base = { username: email, login: "password" as const, outsideDomain: false, helpUrl: "" };
+  if (domain === "exemple.fr") {
+    return delay<Detected>({ ...base, source: "ispdb", provider: "Exemple Mail", imap: tls("imap.exemple.fr", 993), smtp: tls("smtp.exemple.fr", 465) });
+  }
+  if (domain === "hebergeur.example") {
+    return delay<Detected>({ ...base, source: "srv", provider: "", imap: tls("imap.mail-hote.example", 993), smtp: tls("smtp.mail-hote.example", 465), outsideDomain: true });
+  }
+  if (domain === "proton.me") {
+    const local = (port: number) => ({ host: "127.0.0.1", port, security: "startTls" as const });
+    return delay<Detected>({ ...base, source: "builtin", provider: "Proton Mail", login: "protonBridge", imap: local(1143), smtp: local(1025) });
+  }
+  if (domain === "gmail.com") {
+    return delay<Detected>({ ...base, source: "builtin", provider: "Gmail", login: "google", imap: tls("imap.gmail.com", 993), smtp: tls("smtp.gmail.com", 465) });
+  }
+  return new Promise((_, reject) => setTimeout(() => reject(`Aucun réglage trouvé pour ${domain} : saisissez les serveurs à la main.`), 30));
+}
 
 export const listMessages = (folderId: string) =>
   delay(

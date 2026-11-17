@@ -22,6 +22,7 @@
 | `oauth` | the return of the sign-in page and the identity token | `oauth.rs` |
 | `headers` | the headers taken from a received message to reply to it | `crates/mail-core` |
 | `mbox` | an imported file, `.eml` or `.mbox`: split, rewritten as mbox, read again (batch E8a) | `crates/mail-core` (`mbox.rs`) |
+| `autoconfig` | a `clientConfig` document published by a domain, or the ISPDB copy: servers chosen, user name, provider name and help (batch I1) | `autoconfig.rs`, `xml.rs` |
 | `smime_verify` | an S/MIME signed message: its two halves, then the CMS signature and the certificate chain (batch G2) | `crates/smime` (`parts.rs`, `verify.rs`, `chain.rs`) |
 | `smime_decrypt` | an S/MIME encrypted message: recognised, turned back into DER, decrypted with the test key (batch G2) | `crates/smime` (`ber.rs`, `decrypt.rs`) |
 | `smime_cert` | a received certificate: summary, signer, possible encryption to it (batch G2) | `crates/smime` (`cert.rs`, `encrypt.rs`) |

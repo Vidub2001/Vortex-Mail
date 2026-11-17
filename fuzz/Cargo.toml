@@ -135,6 +135,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "autoconfig"
+path = "fuzz_targets/autoconfig.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "url"
 path = "fuzz_targets/url.rs"
 test = false

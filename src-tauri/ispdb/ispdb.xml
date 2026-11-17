@@ -1,0 +1,3606 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copie réduite de l'ISPDB de Thunderbird (https://github.com/thunderbird/autoconfig), licence MPL-2.0 (LICENSE).
+     Produite par scripts/ispdb.py maj : ne pas modifier à la main. -->
+<ispdb source="https://github.com/thunderbird/autoconfig" commit="f50a4feb7dd0e0ed76a7ce440d591ac592dcc313" date="2026-11-16">
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>126.com</domain>
+   <displayName>126.com</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.126.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.126.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>163.com</domain>
+   <displayName>163.com</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.163.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.163.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>online.de</domain>
+   <domain>onlinehome.de</domain>
+   <domain>sofortstart.de</domain>
+   <domain>sofort-start.de</domain>
+   <domain>sofortsurf.de</domain>
+   <domain>sofort-surf.de</domain>
+   <domain>go4more.de</domain>
+   <domain>kundenserver.de</domain>
+   <domain>schlund.de</domain>
+   <displayName>1&amp;1</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.1und1.de</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.1und1.de</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.1und1.de</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.1und1.de</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://hilfe-center.1und1.de/e-mail-einstellungen" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>a1.net</domain>
+   <domain>aon.at</domain>
+   <displayName>a1.net</displayName>
+   <incomingServer type="imap">
+    <hostname>securemail.a1.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>securemail.a1.net</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>active24.com</domain>
+   <domain>smtp.cz</domain>
+   <displayName>ACTIVE 24 Webhosting</displayName>
+   <incomingServer type="imap">
+    <hostname>email.active24.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>email.active24.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>alice.it</domain>
+   <displayName>Alice Italy</displayName>
+   <incomingServer type="imap">
+    <hostname>in.alice.it</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>out.alice.it</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.tim.it/assistenza/assistenza-tecnica/mail/configurazione/protocolli-posta" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>aol.com</domain>
+   <domain>aim.com</domain>
+   <domain>netscape.net</domain>
+   <domain>netscape.com</domain>
+   <domain>compuserve.com</domain>
+   <domain>cs.com</domain>
+   <domain>wmconnect.com</domain>
+   <domain>aol.de</domain>
+   <domain>aol.it</domain>
+   <domain>aol.fr</domain>
+   <domain>aol.es</domain>
+   <domain>aol.se</domain>
+   <domain>aol.co.uk</domain>
+   <domain>aol.co.nz</domain>
+   <domain>aol.com.au</domain>
+   <domain>aol.com.ar</domain>
+   <domain>aol.com.br</domain>
+   <domain>aol.com.mx</domain>
+   <domain>mail.gm0.yahoodns.net</domain>
+   <displayName>AOL Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.aol.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.aol.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://help.aol.com/articles/how-do-i-use-other-email-applications-to-send-and-receive-my-aol-mail" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>pec.it</domain>
+   <domain>arubapec.it</domain>
+   <domain>mypec.eu</domain>
+   <domain>gigapec.it</domain>
+   <domain>ingpec.eu</domain>
+   <displayName>Aruba PEC</displayName>
+   <incomingServer type="imap">
+    <hostname>imaps.pec.aruba.it</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtps.pec.aruba.it</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>ameritech.net</domain>
+   <domain>att.net</domain>
+   <domain>bellsouth.net</domain>
+   <domain>currently.com</domain>
+   <domain>flash.net</domain>
+   <domain>nvbell.net</domain>
+   <domain>pacbell.net</domain>
+   <domain>prodigy.net</domain>
+   <domain>sbcglobal.net</domain>
+   <domain>snet.net</domain>
+   <domain>swbell.net</domain>
+   <domain>wans.net</domain>
+   <displayName>AT&amp;T</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.mail.att.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>outbound.att.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.mail.att.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.att.com/support/article/email-support/KM1010523/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>bell.net</domain>
+   <domain>sympatico.ca</domain>
+   <displayName>Bell Canada email</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.bell.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtphm.sympatico.ca</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>bigpond.com</domain>
+   <domain>bigpond.net.au</domain>
+   <domain>telstra.com</domain>
+   <domain>bigpond.net</domain>
+   <displayName>Telstra Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.telstra.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.telstra.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.telstra.com.au/support/category/email/telstra-mail/recommended-email-settings-for-telstra-mail" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>bluewin.ch</domain>
+   <domain>bluemail.ch</domain>
+   <displayName>Bluewin Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imaps.bluewin.ch</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtpauths.bluewin.ch</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>blueyonder.co.uk</domain>
+   <displayName>Blueyonder: Virgin Media Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap4.blueyonder.co.uk</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.blueyonder.co.uk</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>bol.com.br</domain>
+   <displayName>BOL - Brasil Online</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.bol.com.br</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtps.bol.com.br</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtps.bol.com.br</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>btinternet.com</domain>
+   <domain>btopenworld.com</domain>
+   <domain>talk21.com</domain>
+   <displayName>BT Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.btinternet.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.btinternet.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>cc9.ne.jp</domain>
+   <displayName>CC9インターネットサービス</displayName>
+   <incomingServer type="imap">
+    <hostname>pop.cc9.ne.jp</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>msa.cc9.ne.jp</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.cc9.jp/support/internet/software/mail/thunderbird.html" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>cek.ne.jp</domain>
+   <displayName>エコーシティー・駒ケ岳</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.cek.ne.jp</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtpa.cek.ne.jp</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://faq.cek.co.jp/CEK%E3%81%AE%E3%83%A1%E3%83%BC%E3%83%AB%E3%82%92%E4%BD%BF%E3%81%86%E6%96%B9%E6%B3%95-64b667d02407c8001bfabc95" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>centurylink.net</domain>
+   <domain>embarqmail.com</domain>
+   <displayName>CenturyLink.net</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.centurylink.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.centurylink.net</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>cgl.ucsf.edu</domain>
+   <displayName>UCSF CGL email</displayName>
+   <incomingServer type="imap">
+    <hostname>plato.cgl.ucsf.edu</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>plato.cgl.ucsf.edu</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>charter.net</domain>
+   <domain>spectrum.net</domain>
+   <domain>bresnan.net</domain>
+   <displayName>Charter Communications</displayName>
+   <incomingServer type="imap">
+    <hostname>mobile.charter.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mobile.charter.net</hostname>
+    <port>587</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.spectrum.net/support/internet/mobile-email-setup" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>clustermail.de</domain>
+   <displayName>Clustermail</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.clustermail.de</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>mail.clustermail.de</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.clustermail.de</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.clustermail.de</hostname>
+    <port>25</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </outgoingServer>
+   <documentation url="https://ratiokontakt.de/news/2015/01/01/faq-wie-muss-mein-e-mail-client-konfiguriert-werden/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>comcast.net</domain>
+   <displayName>Comcast</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.comcast.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.comcast.net</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.comcast.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.comcast.net</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.xfinity.com/support/articles/setting-up-thunderbird" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>daum.net</domain>
+   <displayName>Daum Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.daum.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.daum.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://cs.daum.net/faq/43/9234.html#24081" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>ispgateway.de</domain>
+   <displayName>domainFACTORY</displayName>
+   <incomingServer type="imap">
+    <hostname>sslin.df.eu</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>sslout.df.eu</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>dondominio.com</domain>
+   <displayName>DonDominio/MrDomain</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.dondominio.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.dondominio.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>earthlink.net</domain>
+   <domain>mindspring.com</domain>
+   <domain>ix.netcom.com</domain>
+   <domain>peoplepc.com</domain>
+   <displayName>EarthLink</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.earthlink.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtpauth.earthlink.net</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://help.earthlink.net/portal/en/kb/articles/email-server-settings" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>educa.madrid.org</domain>
+   <displayName>Plataforma EducaMadrid</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.educa.madrid.org</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp01.educa.madrid.org</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp01.educa.madrid.org</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://documentacion.educa.madrid.org/books/correo/page/clientes-de-correo" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>elpasotel.net</domain>
+   <displayName>Elpasotel.net</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.elpasotel.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.elpasotel.net</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>email.it</domain>
+   <displayName>email.it</displayName>
+   <incomingServer type="imap">
+    <hostname>in.email.it</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>out.email.it</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.email.it/faq" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>emailsrvr.com</domain>
+   <displayName>Rackspace Email Hosting</displayName>
+   <incomingServer type="imap">
+    <hostname>secure.emailsrvr.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>secure.emailsrvr.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>fastwebnet.it</domain>
+   <displayName>Fastweb</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.fastwebnet.it</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.fastwebnet.it</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </outgoingServer>
+   <documentation url="https://www.fastweb.it/fastmail/guida/mail_POPeIMAP/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>free.fr</domain>
+   <displayName>Freebox</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.free.fr</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.free.fr</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://assistance.free.fr/articles/configurer-de-maniere-avancee-mon-logiciel-de-messagerie-609" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>gandi.net</domain>
+   <displayName>Gandi Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.gandi.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>mail.gandi.net</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.gandi.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.gandi.net</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>gigahost.dk</domain>
+   <displayName>Gigahost Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.gigahost.dk</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.gigahost.dk</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>gmx.com</domain>
+   <domain>gmx.tm</domain>
+   <domain>gmx.us</domain>
+   <domain>gmx.co.uk</domain>
+   <domain>gmx.es</domain>
+   <domain>gmx.fr</domain>
+   <domain>gmx.ca</domain>
+   <domain>gmx.cn</domain>
+   <domain>gmx.co.in</domain>
+   <domain>gmx.com.br</domain>
+   <domain>gmx.com.my</domain>
+   <domain>gmx.hk</domain>
+   <domain>gmx.ie</domain>
+   <domain>gmx.ph</domain>
+   <domain>gmx.pt</domain>
+   <domain>gmx.ru</domain>
+   <domain>gmx.se</domain>
+   <domain>gmx.sg</domain>
+   <domain>gmx.tw</domain>
+   <domain>gmx.com.tr</domain>
+   <domain>gmx.it</domain>
+   <domain>gmx.li</domain>
+   <displayName>GMX Freemail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.gmx.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.gmx.com</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.gmx.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.gmx.com</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>gmx.net</domain>
+   <domain>gmx.de</domain>
+   <domain>gmx.at</domain>
+   <domain>gmx.ch</domain>
+   <domain>gmx.eu</domain>
+   <domain>gmx.biz</domain>
+   <domain>gmx.org</domain>
+   <domain>gmx.info</domain>
+   <domain>mein.gmx</domain>
+   <domain>mail.gmx</domain>
+   <domain>email.gmx</domain>
+   <displayName>GMX Freemail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.gmx.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.gmx.net</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.gmx.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.gmx.net</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://hilfe.gmx.net/pop-imap/imap/imap-serverdaten.html" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>goo.jp</domain>
+   <displayName>goo メールアドバンス</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.mail.goo.jp</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.mail.goo.jp</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://web.archive.org/web/20251118110504/https://mail.goo.ne.jp/howto/#app" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>gmail.com</domain>
+   <domain>googlemail.com</domain>
+   <domain>google.com</domain>
+   <domain>jazztel.es</domain>
+   <domain>nyu.edu</domain>
+   <displayName>Google Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.gmail.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.gmail.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>gransy.com</domain>
+   <domain>internetserver.cz</domain>
+   <displayName>G-Hosting.cz a Station.cz</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.gransy.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.gransy.com</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.gransy.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.gransy.com</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.gransy.com</hostname>
+    <port>25</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://emaily.eu/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>your-server.de</domain>
+   <displayName>Hetzner</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.your-server.de</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.your-server.de</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>hotmail.com</domain>
+   <domain>live.com</domain>
+   <domain>msn.com</domain>
+   <domain>outlook.com</domain>
+   <domain>windowslive.com</domain>
+   <domain>outlook.at</domain>
+   <domain>outlook.be</domain>
+   <domain>outlook.cl</domain>
+   <domain>outlook.cz</domain>
+   <domain>outlook.de</domain>
+   <domain>outlook.dk</domain>
+   <domain>outlook.es</domain>
+   <domain>outlook.fr</domain>
+   <domain>outlook.hu</domain>
+   <domain>outlook.ie</domain>
+   <domain>outlook.in</domain>
+   <domain>outlook.it</domain>
+   <domain>outlook.jp</domain>
+   <domain>outlook.kr</domain>
+   <domain>outlook.lv</domain>
+   <domain>outlook.my</domain>
+   <domain>outlook.ph</domain>
+   <domain>outlook.pt</domain>
+   <domain>outlook.sa</domain>
+   <domain>outlook.sg</domain>
+   <domain>outlook.sk</domain>
+   <domain>outlook.co.id</domain>
+   <domain>outlook.co.il</domain>
+   <domain>outlook.co.th</domain>
+   <domain>outlook.com.ar</domain>
+   <domain>outlook.com.au</domain>
+   <domain>outlook.com.br</domain>
+   <domain>outlook.com.gr</domain>
+   <domain>outlook.com.tr</domain>
+   <domain>outlook.com.vn</domain>
+   <domain>hotmail.be</domain>
+   <domain>hotmail.ca</domain>
+   <domain>hotmail.cl</domain>
+   <domain>hotmail.cz</domain>
+   <domain>hotmail.de</domain>
+   <domain>hotmail.dk</domain>
+   <domain>hotmail.es</domain>
+   <domain>hotmail.fi</domain>
+   <domain>hotmail.fr</domain>
+   <domain>hotmail.gr</domain>
+   <domain>hotmail.hu</domain>
+   <domain>hotmail.it</domain>
+   <domain>hotmail.lt</domain>
+   <domain>hotmail.lv</domain>
+   <domain>hotmail.my</domain>
+   <domain>hotmail.nl</domain>
+   <domain>hotmail.no</domain>
+   <domain>hotmail.ph</domain>
+   <domain>hotmail.rs</domain>
+   <domain>hotmail.se</domain>
+   <domain>hotmail.sg</domain>
+   <domain>hotmail.sk</domain>
+   <domain>hotmail.co.id</domain>
+   <domain>hotmail.co.il</domain>
+   <domain>hotmail.co.in</domain>
+   <domain>hotmail.co.jp</domain>
+   <domain>hotmail.co.kr</domain>
+   <domain>hotmail.co.th</domain>
+   <domain>hotmail.co.uk</domain>
+   <domain>hotmail.co.za</domain>
+   <domain>hotmail.com.ar</domain>
+   <domain>hotmail.com.au</domain>
+   <domain>hotmail.com.br</domain>
+   <domain>hotmail.com.hk</domain>
+   <domain>hotmail.com.tr</domain>
+   <domain>hotmail.com.tw</domain>
+   <domain>hotmail.com.vn</domain>
+   <domain>live.at</domain>
+   <domain>live.be</domain>
+   <domain>live.ca</domain>
+   <domain>live.cl</domain>
+   <domain>live.cn</domain>
+   <domain>live.de</domain>
+   <domain>live.dk</domain>
+   <domain>live.fi</domain>
+   <domain>live.fr</domain>
+   <domain>live.hk</domain>
+   <domain>live.ie</domain>
+   <domain>live.in</domain>
+   <domain>live.it</domain>
+   <domain>live.jp</domain>
+   <domain>live.nl</domain>
+   <domain>live.no</domain>
+   <domain>live.ru</domain>
+   <domain>live.se</domain>
+   <domain>live.co.jp</domain>
+   <domain>live.co.kr</domain>
+   <domain>live.co.uk</domain>
+   <domain>live.co.za</domain>
+   <domain>live.com.ar</domain>
+   <domain>live.com.au</domain>
+   <domain>live.com.mx</domain>
+   <domain>live.com.my</domain>
+   <domain>live.com.ph</domain>
+   <domain>live.com.pt</domain>
+   <domain>live.com.sg</domain>
+   <domain>livemail.tw</domain>
+   <domain>olc.protection.outlook.com</domain>
+   <displayName>Outlook.com (Microsoft)</displayName>
+   <incomingServer type="imap">
+    <hostname>outlook.office365.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp-mail.outlook.com</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+   </outgoingServer>
+   <documentation url="https://support.office.com/article/pop-imap-and-smtp-settings-for-outlook-com-d088b986-291d-42b8-9564-9c414e2aa040" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>i.softbank.jp</domain>
+   <displayName>SoftBank</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.softbank.jp</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.softbank.jp</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>iiyama-catv.ne.jp</domain>
+   <displayName>ケーブルテレビiネット飯山</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.iiyama-catv.ne.jp</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtpa.iiyama-catv.ne.jp</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>inbox.lv</domain>
+   <domain>inbox.eu</domain>
+   <domain>inbox.lt</domain>
+   <domain>inbox.la</domain>
+   <displayName>%EMAILDOMAIN%</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.%EMAILDOMAIN%</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.%EMAILDOMAIN%</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://help.inbox.lv/?keyword=email_clients_settings" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>ipax.at</domain>
+   <displayName>IPAX Internet Services</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.ipax.at</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.ipax.at</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>janis.or.jp</domain>
+   <displayName>Janis</displayName>
+   <incomingServer type="imap">
+    <hostname>imaps.janis.or.jp</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtps.janis.or.jp</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.janis.jp/support/user/mail-settings" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>jet.ne.jp</domain>
+   <displayName>JETINTERNET</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.jet.ne.jp</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.jet.ne.jp</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.jet.ne.jp</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.jet.ne.jp/index.php?id=477" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>kelcom.net</domain>
+   <displayName>KELCOM Internet</displayName>
+   <incomingServer type="imap">
+    <hostname>pop.kelcom.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.kelcom.net</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://portal.kelcom.net/support/faq/6/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>kpnmail.nl</domain>
+   <domain>kpnplanet.nl</domain>
+   <domain>planet.nl</domain>
+   <domain>wxs.nl</domain>
+   <domain>hetnet.nl</domain>
+   <domain>freeler.nl</domain>
+   <domain>snelnet.net</domain>
+   <domain>on.nl</domain>
+   <domain>onsbrabantnet.nl</domain>
+   <domain>onsmail.nl</domain>
+   <domain>onsnet.nu</domain>
+   <domain>onsneteindhoven.nl</domain>
+   <domain>onsnetnuenen.nl</domain>
+   <domain>xs4all.nl</domain>
+   <domain>telfort.nl</domain>
+   <domain>tip.nl</domain>
+   <domain>tiscali.nl</domain>
+   <domain>tiscalimail.nl</domain>
+   <displayName>KPN E-mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.kpnmail.nl</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.kpnmail.nl</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.kpnmail.nl</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.kpnmail.nl</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.kpn.com/service/internet/e-mail/instellen-laptop-pc.htm" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>laposte.net</domain>
+   <displayName>LaPoste</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.laposte.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.laposte.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>libero.it</domain>
+   <domain>iol.it</domain>
+   <domain>blu.it</domain>
+   <domain>inwind.it</domain>
+   <domain>giallo.it</domain>
+   <displayName>Libero Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imapmail.libero.it</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.libero.it</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>mail.com</domain>
+   <domain>mail.org</domain>
+   <domain>email.com</domain>
+   <domain>post.com</domain>
+   <domain>usa.com</domain>
+   <domain>accountant.com</domain>
+   <domain>consultant.com</domain>
+   <domain>dr.com</domain>
+   <domain>engineer.com</domain>
+   <domain>cheerful.com</domain>
+   <domain>techie.com</domain>
+   <domain>linuxmail.org</domain>
+   <domain>europe.com</domain>
+   <domain>london.com</domain>
+   <domain>uymail.com</domain>
+   <domain>myself.com</domain>
+   <domain>iname.com</domain>
+   <domain>writeme.com</domain>
+   <domain>2die4.com</domain>
+   <domain>activist.com</domain>
+   <domain>adexec.com</domain>
+   <domain>africamail.com</domain>
+   <domain>aircraftmail.com</domain>
+   <domain>alabama.usa.com</domain>
+   <domain>alaska.usa.com</domain>
+   <domain>allergist.com</domain>
+   <domain>alumni.com</domain>
+   <domain>alumnidirector.com</domain>
+   <domain>americamail.com</domain>
+   <domain>amorous.com</domain>
+   <domain>angelic.com</domain>
+   <domain>archaeologist.com</domain>
+   <domain>arizona.usa.com</domain>
+   <domain>artlover.com</domain>
+   <domain>asia-mail.com</domain>
+   <domain>atheist.com</domain>
+   <domain>australiamail.com</domain>
+   <domain>bartender.net</domain>
+   <domain>berlin.com</domain>
+   <domain>bigger.com</domain>
+   <domain>bikerider.com</domain>
+   <domain>birdlover.com</domain>
+   <domain>blader.com</domain>
+   <domain>boardermail.com</domain>
+   <domain>brazilmail.com</domain>
+   <domain>brew-master.com</domain>
+   <domain>california.usa.com</domain>
+   <domain>californiamail.com</domain>
+   <domain>caress.com</domain>
+   <domain>catlover.com</domain>
+   <domain>chef.net</domain>
+   <domain>chemist.com</domain>
+   <domain>chinamail.com</domain>
+   <domain>clerk.com</domain>
+   <domain>cliffhanger.com</domain>
+   <domain>collector.org</domain>
+   <domain>columnist.com</domain>
+   <domain>comic.com</domain>
+   <domain>computer4u.com</domain>
+   <domain>contractor.net</domain>
+   <domain>coolsite.net</domain>
+   <domain>counsellor.com</domain>
+   <domain>count.com</domain>
+   <domain>couple.com</domain>
+   <domain>cutey.com</domain>
+   <domain>cyberdude.com</domain>
+   <domain>cybergal.com</domain>
+   <domain>cyber-wizard.com</domain>
+   <domain>dallasmail.com</domain>
+   <domain>dbzmail.com</domain>
+   <domain>deliveryman.com</domain>
+   <domain>diplomats.com</domain>
+   <domain>disciples.com</domain>
+   <domain>doctor.com</domain>
+   <domain>doglover.com</domain>
+   <domain>doramail.com</domain>
+   <domain>dublin.com</domain>
+   <domain>earthling.net</domain>
+   <domain>elvisfan.com</domain>
+   <domain>englandmail.com</domain>
+   <domain>europemail.com</domain>
+   <domain>execs.com</domain>
+   <domain>fan.com</domain>
+   <domain>feelings.com</domain>
+   <domain>financier.com</domain>
+   <domain>fireman.net</domain>
+   <domain>florida.usa.com</domain>
+   <domain>footballer.com</domain>
+   <domain>gardener.com</domain>
+   <domain>geologist.com</domain>
+   <domain>germanymail.com</domain>
+   <domain>graduate.org</domain>
+   <domain>graphic-designer.com</domain>
+   <domain>hackermail.com</domain>
+   <domain>hairdresser.net</domain>
+   <domain>hilarious.com</domain>
+   <domain>hockeymail.com</domain>
+   <domain>homemail.com</domain>
+   <domain>hot-shot.com</domain>
+   <domain>hour.com</domain>
+   <domain>humanoid.net</domain>
+   <domain>illinois.usa.com</domain>
+   <domain>innocent.com</domain>
+   <domain>inorbit.com</domain>
+   <domain>instruction.com</domain>
+   <domain>instructor.net</domain>
+   <domain>insurer.com</domain>
+   <domain>irelandmail.com</domain>
+   <domain>italymail.com</domain>
+   <domain>japan.com</domain>
+   <domain>journalist.com</domain>
+   <domain>keromail.com</domain>
+   <domain>kittymail.com</domain>
+   <domain>koreamail.com</domain>
+   <domain>lawyer.com</domain>
+   <domain>legislator.com</domain>
+   <domain>loveable.com</domain>
+   <domain>lovecat.com</domain>
+   <domain>mad.scientist.com</domain>
+   <domain>madonnafan.com</domain>
+   <domain>madrid.com</domain>
+   <domain>marchmail.com</domain>
+   <domain>mexicomail.com</domain>
+   <domain>mindless.com</domain>
+   <domain>minister.com</domain>
+   <domain>mobsters.com</domain>
+   <domain>monarchy.com</domain>
+   <domain>moscowmail.com</domain>
+   <domain>munich.com</domain>
+   <domain>musician.org</domain>
+   <domain>muslim.com</domain>
+   <domain>newyork.usa.com</domain>
+   <domain>null.net</domain>
+   <domain>nycmail.com</domain>
+   <domain>oath.com</domain>
+   <domain>optician.com</domain>
+   <domain>pacificwest.com</domain>
+   <domain>petlover.com</domain>
+   <domain>photographer.net</domain>
+   <domain>playful.com</domain>
+   <domain>poetic.com</domain>
+   <domain>politician.com</domain>
+   <domain>popstar.com</domain>
+   <domain>presidency.com</domain>
+   <domain>priest.com</domain>
+   <domain>programmer.net</domain>
+   <domain>publicist.com</domain>
+   <domain>realtyagent.com</domain>
+   <domain>reborn.com</domain>
+   <domain>reggaefan.com</domain>
+   <domain>religious.com</domain>
+   <domain>repairman.com</domain>
+   <domain>representative.com</domain>
+   <domain>rescueteam.com</domain>
+   <domain>revenue.com</domain>
+   <domain>rocketship.com</domain>
+   <domain>rockfan.com</domain>
+   <domain>rome.com</domain>
+   <domain>royal.net</domain>
+   <domain>saintly.com</domain>
+   <domain>salesperson.net</domain>
+   <domain>sanfranmail.com</domain>
+   <domain>scientist.com</domain>
+   <domain>scotlandmail.com</domain>
+   <domain>secretary.net</domain>
+   <domain>seductive.com</domain>
+   <domain>singapore.com</domain>
+   <domain>snakebite.com</domain>
+   <domain>songwriter.net</domain>
+   <domain>soon.com</domain>
+   <domain>spainmail.com</domain>
+   <domain>teachers.org</domain>
+   <domain>technologist.com</domain>
+   <domain>texas.usa.com</domain>
+   <domain>thegame.com</domain>
+   <domain>therapist.net</domain>
+   <domain>toke.com</domain>
+   <domain>tokyo.com</domain>
+   <domain>toothfairy.com</domain>
+   <domain>tvstar.com</domain>
+   <domain>umpire.com</domain>
+   <domain>wallet.com</domain>
+   <domain>webname.com</domain>
+   <domain>weirdness.com</domain>
+   <domain>who.net</domain>
+   <domain>whoever.com</domain>
+   <domain>winning.com</domain>
+   <domain>witty.com</domain>
+   <domain>worker.com</domain>
+   <domain>workmail.com</domain>
+   <domain>yours.com</domain>
+   <displayName>mail.com</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.mail.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.mail.com</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.mail.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.mail.com</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>mail.dk</domain>
+   <displayName>Yousee Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.mail.dk</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>asmtp.mail.dk</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://yousee.dk/hjaelp/artikler/hvad-er-mine-serveroplysninger-til-yousee-mail" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>mail.ee</domain>
+   <displayName>%EMAILDOMAIN%</displayName>
+   <incomingServer type="imap">
+    <hostname>%EMAILDOMAIN%</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>%EMAILDOMAIN%</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://help.mail.ee/?keyword=email_clients_settings" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>mail.jubii.dk</domain>
+   <domain>christensen.dk</domain>
+   <domain>christiansen.dk</domain>
+   <domain>eriksen.dk</domain>
+   <domain>frandsen.dk</domain>
+   <domain>frederiksen.dk</domain>
+   <domain>hansen.dk</domain>
+   <domain>henningsen.dk</domain>
+   <domain>henriksen.dk</domain>
+   <domain>iversen.dk</domain>
+   <domain>jacobsen.dk</domain>
+   <domain>jakobsen.dk</domain>
+   <domain>johansen.dk</domain>
+   <domain>knudsen.dk</domain>
+   <domain>larsen.dk</domain>
+   <domain>laursen.dk</domain>
+   <domain>madsen.dk</domain>
+   <domain>mathiesen.dk</domain>
+   <domain>mikaelsen.dk</domain>
+   <domain>mikkelsen.dk</domain>
+   <domain>mortensen.dk</domain>
+   <domain>olesen.dk</domain>
+   <domain>pedersen.dk</domain>
+   <domain>petersen.dk</domain>
+   <domain>poulsen.dk</domain>
+   <domain>rasmussen.dk</domain>
+   <domain>simonsen.dk</domain>
+   <domain>sorensen.dk</domain>
+   <domain>svendsen.dk</domain>
+   <domain>thomsen.dk</domain>
+   <domain>vestergaard.dk</domain>
+   <domain>123mail.dk</domain>
+   <domain>12fuel.dk</domain>
+   <domain>12mail.dk</domain>
+   <domain>12move.dk</domain>
+   <domain>2night.dk</domain>
+   <domain>2senior.dk</domain>
+   <domain>9260.dk</domain>
+   <domain>anarki.dk</domain>
+   <domain>anderledes.dk</domain>
+   <domain>backbone.dk</domain>
+   <domain>bedstemail.dk</domain>
+   <domain>begavet.dk</domain>
+   <domain>bemybaby.dk</domain>
+   <domain>bitnisse.dk</domain>
+   <domain>city.dk</domain>
+   <domain>cool.dk</domain>
+   <domain>cyberdude.dk</domain>
+   <domain>cyberjunkie.dk</domain>
+   <domain>dancemail.dk</domain>
+   <domain>e-box.dk</domain>
+   <domain>elinstallatoer.dk</domain>
+   <domain>elsker.dk</domain>
+   <domain>elvis.dk</domain>
+   <domain>email.dk</domain>
+   <domain>e-mail.dk</domain>
+   <domain>e-postboks.dk</domain>
+   <domain>fald.dk</domain>
+   <domain>fedt.dk</domain>
+   <domain>feminin.dk</domain>
+   <domain>flirt.dk</domain>
+   <domain>forening.dk</domain>
+   <domain>fraekkert.dk</domain>
+   <domain>funkymail.dk</domain>
+   <domain>gadefejer.dk</domain>
+   <domain>gaf-net.dk</domain>
+   <domain>gason.dk</domain>
+   <domain>grin.dk</domain>
+   <domain>groovymail.dk</domain>
+   <domain>grov.dk</domain>
+   <domain>hammergod.dk</domain>
+   <domain>hardworking.dk</domain>
+   <domain>heaven.dk</domain>
+   <domain>heavymail.dk</domain>
+   <domain>hemmelig.dk</domain>
+   <domain>hippie.dk</domain>
+   <domain>huleboer.dk</domain>
+   <domain>husk-mig.dk</domain>
+   <domain>hyperpost.dk</domain>
+   <domain>iloveu.dk</domain>
+   <domain>inbound.dk</domain>
+   <domain>indbakke.dk</domain>
+   <domain>infile.dk</domain>
+   <domain>info.dk</domain>
+   <domain>io.dk</domain>
+   <domain>it.dk</domain>
+   <domain>jubii.dk</domain>
+   <domain>jubiichat.dk</domain>
+   <domain>jubiiconnect.dk</domain>
+   <domain>jubiigames.dk</domain>
+   <domain>jubiimail.dk</domain>
+   <domain>jubiipost.dk</domain>
+   <domain>jubiipostadresse.dk</domain>
+   <domain>jyde.dk</domain>
+   <domain>klog.dk</domain>
+   <domain>knus.dk</domain>
+   <domain>krudt.dk</domain>
+   <domain>kulturel.dk</domain>
+   <domain>kvalme.dk</domain>
+   <domain>lazy.dk</domain>
+   <domain>lystig.dk</domain>
+   <domain>mail4.dk</domain>
+   <domain>mail6.dk</domain>
+   <domain>mail8.dk</domain>
+   <domain>maildanmark.dk</domain>
+   <domain>mail-mig.dk</domain>
+   <domain>mailroyal.dk</domain>
+   <domain>mailster.dk</domain>
+   <domain>manmail.dk</domain>
+   <domain>maskulin.dk</domain>
+   <domain>min-postkasse.dk</domain>
+   <domain>minprivatemail.dk</domain>
+   <domain>musling.dk</domain>
+   <domain>natteliv.dk</domain>
+   <domain>netbruger.dk</domain>
+   <domain>nicemail.dk</domain>
+   <domain>nospam.dk</domain>
+   <domain>pedal.dk</domain>
+   <domain>pengemand.dk</domain>
+   <domain>pokerface.dk</domain>
+   <domain>popme.dk</domain>
+   <domain>postman.dk</domain>
+   <domain>privatmail.dk</domain>
+   <domain>privatpost.dk</domain>
+   <domain>quake.dk</domain>
+   <domain>ready.dk</domain>
+   <domain>retromail.dk</domain>
+   <domain>ringmybell.dk</domain>
+   <domain>secret.dk</domain>
+   <domain>sexysurfer.dk</domain>
+   <domain>skrivnu.dk</domain>
+   <domain>sleepy.dk</domain>
+   <domain>sporty.dk</domain>
+   <domain>submail.dk</domain>
+   <domain>superbruger.dk</domain>
+   <domain>talent.dk</domain>
+   <domain>tanke.dk</domain>
+   <domain>tastmig.dk</domain>
+   <domain>taxidriver.dk</domain>
+   <domain>teens.dk</domain>
+   <domain>teknik.dk</domain>
+   <domain>tjekket.dk</domain>
+   <domain>trashcan.dk</domain>
+   <domain>trustme.dk</domain>
+   <domain>ungdom.dk</domain>
+   <domain>video.dk</domain>
+   <domain>vittig.dk</domain>
+   <domain>wildwildweb.dk</domain>
+   <domain>zoomail.dk</domain>
+   <domain>zybermail.dk</domain>
+   <displayName>Jubii Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.jubii.dk</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.jubii.dk</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://support.jubii.dk/hc/da/articles/200545089-Ops%C3%A6tning-af-e-mail-Andre-klienter" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>mail.ru</domain>
+   <domain>inbox.ru</domain>
+   <domain>list.ru</domain>
+   <domain>bk.ru</domain>
+   <domain>corp.mail.ru</domain>
+   <displayName>mail.ru</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.mail.ru</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.mail.ru</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.mail.ru</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.mail.ru</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>mac.com</domain>
+   <domain>me.com</domain>
+   <domain>icloud.com</domain>
+   <displayName>Apple iCloud</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.mail.me.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.mail.me.com</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://support.apple.com/HT202304" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>messagingengine.com</domain>
+   <displayName>Fastmail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.fastmail.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.fastmail.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>mit.edu</domain>
+   <displayName>MIT Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>outlook.office365.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>outgoing.mit.edu</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://kb.mit.edu/confluence/display/istcontrib/Microsoft+365+Email+and+Calendaring+-+Configure+via+IMAP+Settings" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>mnet.ne.jp</domain>
+   <displayName>Mnet メール サービス</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.mnet.ne.jp</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>mail.mnet.ne.jp</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.mnet.ne.jp</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>mopera.net</domain>
+   <displayName>mopera U</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.mopera.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>mail.mopera.net</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.mopera.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-encrypted</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.mopera.net</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-encrypted</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>naver.com</domain>
+   <displayName>Naver</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.naver.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.naver.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </outgoingServer>
+   <documentation url="https://help.naver.com/service/30029/contents/21342?osType=PC&amp;lang=ko" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>nili.ca</domain>
+   <displayName>Nili</displayName>
+   <incomingServer type="imap">
+    <hostname>email.nili.email</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>email.nili.email</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>email.nili.email</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://nili.ca/knowledge-base/how-to-connect-email-clients-to-servers/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>ntlworld.com</domain>
+   <displayName>NTL World: Virgin Media Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.ntlworld.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.ntlworld.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>o2.pl</domain>
+   <domain>go2.pl</domain>
+   <domain>tlen.pl</domain>
+   <domain>prokonto.pl</domain>
+   <displayName>o2 Poczta</displayName>
+   <incomingServer type="imap">
+    <hostname>poczta.o2.pl</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>poczta.o2.pl</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>poczta.o2.pl</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://pomoc.o2.pl/jak-skonfigurowac-program-pocztowy" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>office365.com</domain>
+   <domain>onmicrosoft.com</domain>
+   <domain>mail.protection.outlook.com</domain>
+   <displayName>Microsoft 365</displayName>
+   <incomingServer type="imap">
+    <hostname>outlook.office365.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.office365.com</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>one.com</domain>
+   <displayName>one.com</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.one.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>send.one.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>one.cz</domain>
+   <displayName>Webhosting Registrator.cz Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.registrator.cz</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.registrator.cz</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>onet.pl</domain>
+   <domain>onet.eu</domain>
+   <domain>poczta.onet.pl</domain>
+   <domain>poczta.onet.eu</domain>
+   <domain>op.pl</domain>
+   <domain>vp.pl</domain>
+   <domain>autograf.pl</domain>
+   <domain>buziaczek.pl</domain>
+   <domain>amorki.pl</domain>
+   <domain>republika.pl</domain>
+   <domain>adres.pl</domain>
+   <domain>cyberia.pl</domain>
+   <domain>onet.com.pl</domain>
+   <domain>opoczta.pl</domain>
+   <domain>pseudonim.pl</domain>
+   <domain>spoko.pl</domain>
+   <domain>vip.onet.pl</domain>
+   <displayName>Onet Poczta</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.poczta.onet.pl</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.poczta.onet.pl</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.poczta.onet.pl</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://pomoc.poczta.onet.pl/baza-wiedzy/konfiguracja-poczty-w-programie-mozilla-thunderbird/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>orange.fr</domain>
+   <domain>wanadoo.fr</domain>
+   <displayName>Mail Orange</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.orange.fr</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.orange.fr</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://assistance.orange.fr/ordinateurs-peripheriques/installer-et-utiliser/l-utilisation-du-mail-et-du-cloud/mail-orange/le-mail-orange-nouvelle-version/parametrer-la-boite-mail/mail-orange-comment-acceder-a-sa-boite-mail-orange-depuis-une-application-ou-un-logiciel-de-messagerie-non-fourni-par-orange_434630-964290#" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>ovh.net</domain>
+   <displayName>OVH</displayName>
+   <incomingServer type="imap">
+    <hostname>ssl0.ovh.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>ssl0.ovh.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>cloudeu.xion.oxcs.net</domain>
+   <displayName>OX Cloud EU</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.eu.appsuite.cloud</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.eu.appsuite.cloud</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.eu.appsuite.cloud</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://confluence-public.open-xchange.com/display/OASC/OX+Cloud+%28OX+brand%29+endpoints" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>cloudus.xion.oxcs.net</domain>
+   <displayName>OX Cloud US</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.us.appsuite.cloud</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.us.appsuite.cloud</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.us.appsuite.cloud</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://confluence-public.open-xchange.com/display/OASC/OX+Cloud+%28OX+brand%29+endpoints" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>pdx.edu</domain>
+   <displayName>Portland State University Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>psumail.pdx.edu</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>psumail.pdx.edu</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mailhost.pdx.edu</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>mailhost.pdx.edu</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>pobox.com</domain>
+   <displayName>Pobox</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.pobox.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>mail.pobox.com</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.pobox.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.pobox.com</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>postecert.it</domain>
+   <displayName>Poste Italiane PosteCert</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.postecert.it</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.postecert.it</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://postecert.poste.it/pec/configurazione.shtml" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>posteo.de</domain>
+   <domain>posteo.at</domain>
+   <domain>posteo.be</domain>
+   <domain>posteo.ca</domain>
+   <domain>posteo.ch</domain>
+   <domain>posteo.cl</domain>
+   <domain>posteo.co</domain>
+   <domain>posteo.co.uk</domain>
+   <domain>posteo.com</domain>
+   <domain>posteo.com.br</domain>
+   <domain>posteo.cr</domain>
+   <domain>posteo.cz</domain>
+   <domain>posteo.dk</domain>
+   <domain>posteo.ee</domain>
+   <domain>posteo.es</domain>
+   <domain>posteo.eu</domain>
+   <domain>posteo.fi</domain>
+   <domain>posteo.gl</domain>
+   <domain>posteo.gr</domain>
+   <domain>posteo.hn</domain>
+   <domain>posteo.hr</domain>
+   <domain>posteo.hu</domain>
+   <domain>posteo.ie</domain>
+   <domain>posteo.in</domain>
+   <domain>posteo.is</domain>
+   <domain>posteo.it</domain>
+   <domain>posteo.jp</domain>
+   <domain>posteo.la</domain>
+   <domain>posteo.li</domain>
+   <domain>posteo.lt</domain>
+   <domain>posteo.lu</domain>
+   <domain>posteo.me</domain>
+   <domain>posteo.mx</domain>
+   <domain>posteo.my</domain>
+   <domain>posteo.net</domain>
+   <domain>posteo.nl</domain>
+   <domain>posteo.no</domain>
+   <domain>posteo.nz</domain>
+   <domain>posteo.org</domain>
+   <domain>posteo.pe</domain>
+   <domain>posteo.pl</domain>
+   <domain>posteo.pm</domain>
+   <domain>posteo.pt</domain>
+   <domain>posteo.ro</domain>
+   <domain>posteo.se</domain>
+   <domain>posteo.sg</domain>
+   <domain>posteo.si</domain>
+   <domain>posteo.tn</domain>
+   <domain>posteo.uk</domain>
+   <domain>posteo.us</domain>
+   <displayName>Posteo</displayName>
+   <incomingServer type="imap">
+    <hostname>posteo.de</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>posteo.de</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>posteo.de</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>posteo.de</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://posteo.de/hilfe/wie-richte-ich-posteo-in-einem-mailprogramm-ein-pop3-imap-und-smtp" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>ptd.net</domain>
+   <displayName>PenTeleData</displayName>
+   <incomingServer type="imap">
+    <hostname>promail.ptd.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>promail.ptd.net</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>promail.ptd.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>promail.ptd.net</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.ptd.net/support/email-communication/how-setup-your-email" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>q.com</domain>
+   <displayName>Q.com</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.q.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.q.com</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>qq.com</domain>
+   <displayName>qq.com</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.qq.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.qq.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>rambler.ru</domain>
+   <displayName>Rambler Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.rambler.ru</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.rambler.ru</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://help.rambler.ru/mail/mail-pochtovye-klienty/1277/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>rr.com</domain>
+   <displayName>RoadRunner/TWC</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.twc.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.twc.com</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.timewarnercable.com/en/support/faqs/faqs-internet/e-mailacco/incoming-outgoing-server-addresses.html" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>sapo.pt</domain>
+   <domain>sapo.cv</domain>
+   <domain>sapo.ao</domain>
+   <domain>sapo.mz</domain>
+   <domain>sapo.tl</domain>
+   <domain>meo.pt</domain>
+   <displayName>SAPO Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.sapo.pt</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.sapo.pt</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://ajuda.sapo.pt/configurar-programa-de-email-70015" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>schwaz.net</domain>
+   <displayName>schwaz.net | Stadtwerke Schwaz</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.schwaz.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.schwaz.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.schwaz.net</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://stadtwerkeschwaz.at/schwaz-net/anleitungen#Einstellungen" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>seznam.cz</domain>
+   <domain>email.cz</domain>
+   <domain>post.cz</domain>
+   <domain>spoluzaci.cz</domain>
+   <displayName>Seznam</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.seznam.cz</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.seznam.cz</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>sfr.fr</domain>
+   <domain>neuf.fr</domain>
+   <domain>club-internet.fr</domain>
+   <displayName>SFR / Neuf</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.sfr.fr</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.sfr.fr</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>sky.com</domain>
+   <displayName>Sky Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.tools.sky.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.tools.sky.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>skynet.be</domain>
+   <domain>proximus.be</domain>
+   <domain>belgacom.net</domain>
+   <domain>kidcity.be</domain>
+   <displayName>Proximus</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.proximus.be</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>relay.proximus.be</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>so.wind.ne.jp</domain>
+   <domain>so.wind.jp</domain>
+   <displayName>群馬インターネット</displayName>
+   <incomingServer type="imap">
+    <hostname>so.wind.ne.jp</hostname>
+    <port>143</port>
+    <socketType>plain</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>so.wind.ne.jp</hostname>
+    <port>587</port>
+    <socketType>plain</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>strato.de</domain>
+   <domain>rzone.de</domain>
+   <displayName>Strato</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.strato.de</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.strato.de</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.strato.de</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.strato.de/faq/mail/externes-e-mail-programm-mit-strato-e-mail-adresse-nutzen/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>studenti.univr.it</domain>
+   <displayName>Università degli Studi di Verona</displayName>
+   <incomingServer type="imap">
+    <hostname>univr.mail.cineca.it</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>univr.smtpauth.cineca.it</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>t-online.de</domain>
+   <domain>magenta.de</domain>
+   <displayName>t-online</displayName>
+   <incomingServer type="imap">
+    <hostname>secureimap.t-online.de</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>securesmtp.t-online.de</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>securesmtp.t-online.de</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.telekom.de/hilfe/apps-dienste/e-mail/einstellungen/posteingang-postausgang-server" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>teol.net</domain>
+   <domain>mtel.tel</domain>
+   <displayName>TEOL.net Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.teol.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.teol.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://hostingpodrska.teol.net/osticket/kb/faq.php?id=29" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>thinline.cz</domain>
+   <displayName>Český hosting</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.cesky-hosting.cz</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>mail.cesky-hosting.cz</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.cesky-hosting.cz</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.cesky-hosting.cz</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.cesky-hosting.cz</hostname>
+    <port>25</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>tim.it</domain>
+   <displayName>Tim Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.tim.it</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.tim.it</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.tim.it/assistenza/assistenza-tecnica/mail/configurazione/protocolli-posta" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>tiscali.it</domain>
+   <displayName>Tiscali Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.tiscali.it</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.tiscali.it</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-encrypted</authentication>
+   </outgoingServer>
+   <documentation url="https://assistenza.tiscali.it/servizi/guida/posta-elettronica/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>umich.edu</domain>
+   <displayName>University of Michigan</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.gmail.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.gmail.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>uol.com.br</domain>
+   <displayName>UOL</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.uol.com.br</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtps.uol.com.br</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://sac.uol.com.br/info/primeiros_passos/config_mozillathunderbird.jhtm" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>verizon.net</domain>
+   <displayName>Verizon Online</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.aol.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.aol.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://help.aol.com/articles/how-do-i-set-up-other-email-applications-to-send-and-receive-my-verizon-net-mail" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>virgilio.it</domain>
+   <displayName>Virgilio Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>in.virgilio.it</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>out.virgilio.it</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://aiuto.virgilio.it/articolo/mail/configurare-virgilio-mail-con-client-di-posta-imap-e-smtp/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>virgin.net</domain>
+   <displayName>Virgin.net: Virgin Media Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap4.virgin.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.virgin.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>virginmedia.com</domain>
+   <displayName>Virgin Media Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.virginmedia.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.virginmedia.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>vodafonemail.de</domain>
+   <domain>vodafone.de</domain>
+   <domain>arcor.de</domain>
+   <domain>kabelmail.de</domain>
+   <displayName>Vodafone</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.vodafonemail.de</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.vodafonemail.de</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.vodafone.de/hilfe/vodafone-e-mail-cloud.html#wie-lauten-die-server-einstellungen-fuer-vodafone-e-mail" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>web.de</domain>
+   <displayName>WEB.DE Freemail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.web.de</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.web.de</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.web.de</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.web.de</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://hilfe.web.de/pop-imap/imap/imap-serverdaten.html" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>webhuset.no</domain>
+   <displayName>Webhuset</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.webhuset.no</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.webhuset.no</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.webhuset.no</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.webhuset.no/kb/8/oppsett-for-epost-hos-oss" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>websupport.sk</domain>
+   <displayName>WebSupport</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.websupport.sk</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>imap.websupport.sk</hostname>
+    <port>143</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.websupport.sk</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.websupport.sk</hostname>
+    <port>25</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>secureserver.net</domain>
+   <displayName>Your WildWest domain</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.secureserver.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtpout.secureserver.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>wp.pl</domain>
+   <displayName>Poczta Wirtualna Polska</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.wp.pl</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.wp.pl</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>xtra.co.nz</domain>
+   <displayName>Xtra Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.xtra.co.nz</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>send.xtra.co.nz</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.spark.co.nz/help/get-more/xtra/xtra-mail-setup/" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>yahoo.com</domain>
+   <domain>yahoo.ca</domain>
+   <domain>yahoo.de</domain>
+   <domain>yahoo.it</domain>
+   <domain>yahoo.fr</domain>
+   <domain>yahoo.es</domain>
+   <domain>yahoo.se</domain>
+   <domain>yahoo.co.in</domain>
+   <domain>yahoo.co.uk</domain>
+   <domain>yahoo.co.nz</domain>
+   <domain>yahoo.com.au</domain>
+   <domain>yahoo.com.ar</domain>
+   <domain>yahoo.com.br</domain>
+   <domain>yahoo.com.mx</domain>
+   <domain>ymail.com</domain>
+   <domain>myyahoo.com</domain>
+   <domain>rocketmail.com</domain>
+   <domain>cox.net</domain>
+   <domain>mail.am0.yahoodns.net</domain>
+   <domain>am0.yahoodns.net</domain>
+   <domain>yahoodns.net</domain>
+   <displayName>Yahoo! Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.mail.yahoo.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <incomingServer type="imap">
+    <hostname>export.imap.mail.yahoo.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.mail.yahoo.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>OAuth2</authentication>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://help.yahoo.com/kb/new-mail-for-desktop/imap-server-settings-yahoo-mail-sln4075.html" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>yandex.ru</domain>
+   <domain>yandex.com</domain>
+   <domain>yandex.net</domain>
+   <domain>yandex.by</domain>
+   <domain>yandex.kz</domain>
+   <domain>yandex.ua</domain>
+   <domain>ya.ru</domain>
+   <domain>narod.ru</domain>
+   <displayName>Yandex Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.yandex.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.yandex.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>yeah.net</domain>
+   <displayName>yeah.net</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.yeah.net</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.yeah.net</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>zeelandnet.nl</domain>
+   <displayName>ZeelandNet e-mail</displayName>
+   <incomingServer type="imap">
+    <hostname>mail.zeelandnet.nl</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>mail.zeelandnet.nl</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILLOCALPART%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>hahah.nl</domain>
+   <domain>ziggomail.com</domain>
+   <domain>casema.nl</domain>
+   <domain>zinders.nl</domain>
+   <domain>ziggo.nl</domain>
+   <domain>zeggis.nl</domain>
+   <domain>zeggis.com</domain>
+   <domain>razcall.nl</domain>
+   <domain>razcall.com</domain>
+   <domain>upcmail.nl</domain>
+   <domain>chello.nl</domain>
+   <domain>multiweb.nl</domain>
+   <domain>home.nl</domain>
+   <domain>quicknet.nl</domain>
+   <displayName>Ziggo Mail</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.ziggo.nl</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.ziggo.nl</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.ziggo.nl/klantenservice/e-mail/?src=autoconfig" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>zoho.com.au</domain>
+   <domain>zohomail.com.au</domain>
+   <displayName>Zoho Mail - Australia</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.zoho.com.au</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zoho.com.au</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zoho.com.au</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.zoho.com/mail/help/imap-access.html" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>zoho.com</domain>
+   <domain>zohomail.com</domain>
+   <displayName>Zoho Mail - US</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.zoho.com</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zoho.com</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zoho.com</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.zoho.com/mail/help/imap-access.html" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>zoho.eu</domain>
+   <domain>zohomail.eu</domain>
+   <displayName>Zoho Mail - Europe</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.zoho.eu</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zoho.eu</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zoho.eu</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.zoho.com/mail/help/imap-access.html" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>zoho.in</domain>
+   <domain>zohomail.in</domain>
+   <displayName>Zoho Mail - India</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.zoho.in</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zoho.in</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zoho.in</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.zoho.com/mail/help/imap-access.html" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>zoho.jp</domain>
+   <domain>zohomail.jp</domain>
+   <displayName>Zoho Mail - Japan</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.zoho.jp</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zoho.jp</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zoho.jp</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.zoho.com/mail/help/imap-access.html" />
+  </emailProvider>
+ </clientConfig>
+ <clientConfig version="1.1">
+  <emailProvider>
+   <domain>zohocloud.ca</domain>
+   <domain>zohomailcloud.ca</domain>
+   <displayName>Zoho Mail - Canada</displayName>
+   <incomingServer type="imap">
+    <hostname>imap.zohocloud.ca</hostname>
+    <port>993</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </incomingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zohocloud.ca</hostname>
+    <port>465</port>
+    <socketType>SSL</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <outgoingServer type="smtp">
+    <hostname>smtp.zohocloud.ca</hostname>
+    <port>587</port>
+    <socketType>STARTTLS</socketType>
+    <username>%EMAILADDRESS%</username>
+    <authentication>password-cleartext</authentication>
+   </outgoingServer>
+   <documentation url="https://www.zoho.com/mail/help/imap-access.html" />
+  </emailProvider>
+ </clientConfig>
+</ispdb>

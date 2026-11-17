@@ -63,9 +63,119 @@ fn smtp_tcp(host: &str, port: u16) -> Result<TcpStream, String> {
     Ok(stream)
 }
 
-fn tls<S: Read + Write + std::fmt::Debug + 'static>(host: &str, stream: S) -> Result<native_tls::TlsStream<S>, String> {
+/// Chiffrement d'une connexion. `pin` vide : certificat et nom vérifiés par la
+/// bibliothèque du système. Sinon (Proton Mail Bridge, lot I3), voir [`tls_pinned`].
+fn tls<S: Read + Write + std::fmt::Debug + 'static>(host: &str, pin: &str, stream: S) -> Result<native_tls::TlsStream<S>, String> {
+    if !pin.is_empty() {
+        return tls_pinned(host, pin, stream);
+    }
     let connector = tls_connector()?;
-    connector.connect(host, stream).map_err(|e| tr!("négociation SSL/TLS avec {host} échouée : {e}", host = host, e = e))
+    connector.connect(host, stream).map_err(|e| handshake_failed(host, &e))
+}
+
+fn handshake_failed<S: std::fmt::Debug + 'static>(host: &str, e: &native_tls::HandshakeError<S>) -> String {
+    tr!("négociation SSL/TLS avec {host} échouée : {e}", host = host, e = e)
+}
+
+// ---------------------------------------------------------------- Proton Mail Bridge (lot I3)
+
+/// Hôte de Proton Mail Bridge : la boucle locale de cet ordinateur.
+const BRIDGE_HOST: &str = "127.0.0.1";
+
+/// Adresse IP de la boucle locale (`127.0.0.1`, `::1`…) : seul cas où un certificat
+/// épinglé remplace la vérification habituelle. Un nom (`localhost`) n'est pas
+/// admis : il passe par le résolveur du système.
+pub(crate) fn is_loopback(host: &str) -> bool {
+    host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// Empreinte SHA-256 d'un certificat (DER), en majuscules par paires séparées de
+/// « : », comme l'affichent les navigateurs et `openssl x509 -fingerprint -sha256`.
+pub(crate) fn fingerprint(der: &[u8]) -> String {
+    let hex: Vec<String> = crate::crypto::sha256(der).iter().map(|b| format!("{b:02X}")).collect();
+    hex.join(":")
+}
+
+/// Empreinte bien formée : 32 paires hexadécimales séparées de « : ».
+pub(crate) fn is_fingerprint(s: &str) -> bool {
+    let pairs: Vec<&str> = s.trim().split(':').collect();
+    pairs.len() == 32 && pairs.iter().all(|p| p.len() == 2 && p.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// Connecteur sans vérification du certificat ni du nom, réservé à [`tls_pinned`]
+/// et à [`bridge_fingerprint`] : l'empreinte du certificat est contrôlée juste
+/// après la négociation, avant tout identifiant. La négociation prouve que le
+/// serveur détient la clé privée du certificat présenté.
+fn unverified_connector() -> Result<native_tls::TlsConnector, String> {
+    native_tls::TlsConnector::builder()
+        .min_protocol_version(Some(native_tls::Protocol::Tlsv12))
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .build()
+        .map_err(|e| tr!("TLS indisponible : {e}", e = e))
+}
+
+/// Empreinte du certificat présenté par le serveur d'une connexion chiffrée.
+fn presented<S: Read + Write>(stream: &native_tls::TlsStream<S>) -> Result<String, String> {
+    match stream.peer_certificate() {
+        Ok(Some(cert)) => cert.to_der().map(|der| fingerprint(&der)).map_err(|e| e.to_string()),
+        Ok(None) => Err(tr!("Proton Mail Bridge n'a présenté aucun certificat.").into()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Chiffrement avec un certificat épinglé : Proton Mail Bridge présente un
+/// certificat auto-signé, que la bibliothèque du système refuserait. Admis sur la
+/// boucle locale seulement ; la connexion est refusée si l'empreinte du certificat
+/// diffère de `pin`, confirmée par l'utilisateur à l'ajout du compte.
+fn tls_pinned<S: Read + Write + std::fmt::Debug + 'static>(host: &str, pin: &str, stream: S) -> Result<native_tls::TlsStream<S>, String> {
+    if !is_loopback(host) {
+        return Err(tr!(
+            "Certificat épinglé refusé pour {host} : il n'est admis que pour Proton Mail Bridge, sur cet ordinateur (127.0.0.1).",
+            host = host
+        ));
+    }
+    let stream = unverified_connector()?.connect(host, stream).map_err(|e| handshake_failed(host, &e))?;
+    let found = presented(&stream)?;
+    if !found.eq_ignore_ascii_case(pin.trim()) {
+        return Err(tr!(
+            "Le certificat de Proton Mail Bridge a changé (empreinte {found}, {pin} attendue). Si vous avez réinstallé ou réinitialisé Bridge, \
+             modifiez le compte et acceptez le nouveau certificat ; sinon, ne vous connectez pas.",
+            found = found,
+            pin = pin.trim()
+        ));
+    }
+    Ok(stream)
+}
+
+/// Empreinte du certificat de Proton Mail Bridge, lue sur son serveur IMAP
+/// (`127.0.0.1:port`) pour être montrée à l'utilisateur avant d'être épinglée.
+/// Aucun identifiant n'est envoyé.
+///
+/// # Errors
+///
+/// Bridge absent ou arrêté, chiffrement demandé non proposé, négociation échouée.
+pub(crate) fn bridge_fingerprint(port: u16, security: Security) -> Result<String, String> {
+    let absent = || {
+        tr!("Proton Mail Bridge ne répond pas sur cet ordinateur (port {port}). Lancez Bridge et connectez-y votre compte Proton, puis réessayez.", port = port)
+    };
+    let tcp = probe_tcp(BRIDGE_HOST, port).ok_or_else(absent)?;
+    let connector = unverified_connector()?;
+    match security {
+        Security::SslTls => presented(&connector.connect(BRIDGE_HOST, tcp).map_err(|e| handshake_failed(BRIDGE_HOST, &e))?),
+        Security::StartTls => {
+            let mut plain = Client::connect(tcp).map_err(imap_err)?;
+            if plain.capabilities().is_empty() {
+                plain.refresh_capabilities().map_err(imap_err)?;
+            }
+            if !plain.has_capability("STARTTLS") {
+                return Err(tr!("{host}:{port} ne propose pas STARTTLS. Essayez SSL/TLS (port 993).", host = BRIDGE_HOST, port = port));
+            }
+            let raw = plain.starttls().map_err(imap_err)?;
+            presented(&connector.connect(BRIDGE_HOST, raw).map_err(|e| handshake_failed(BRIDGE_HOST, &e))?)
+        }
+        Security::Auto | Security::Unencrypted => Err(tr!("choisissez SSL/TLS ou STARTTLS pour un certificat épinglé").into()),
+    }
 }
 
 /// Chiffrement réellement utilisé quand l'utilisateur a choisi « Auto ».
@@ -115,7 +225,7 @@ pub(crate) fn open_imap(cfg: &ServerConfig) -> Result<(Session, Security), Strin
     let security = resolve(cfg.security, cfg.port, 993);
     let mut session: Session = match security {
         Security::SslTls => {
-            let stream: Box<dyn Stream> = Box::new(tls(host, tcp(host, cfg.port)?)?);
+            let stream: Box<dyn Stream> = Box::new(tls(host, &cfg.pinned_cert, tcp(host, cfg.port)?)?);
             Client::connect(stream).map_err(imap_err)?
         }
         Security::StartTls => {
@@ -127,7 +237,7 @@ pub(crate) fn open_imap(cfg: &ServerConfig) -> Result<(Session, Security), Strin
                 return Err(tr!("{host}:{port} ne propose pas STARTTLS. Essayez SSL/TLS (port 993).", host = host, port = cfg.port));
             }
             let raw = plain.starttls().map_err(imap_err)?;
-            let stream: Box<dyn Stream> = Box::new(tls(host, raw)?);
+            let stream: Box<dyn Stream> = Box::new(tls(host, &cfg.pinned_cert, raw)?);
             let mut client = Client::resume(stream);
             client.refresh_capabilities().map_err(imap_err)?;
             client
@@ -332,6 +442,55 @@ fn smtp_hello(s: &mut dyn Stream, name: &str) -> Result<Vec<String>, String> {
     }
 }
 
+// ---------------------------------------------------------------- essais sans mot de passe
+
+/// Attente d'un serveur essayé pendant la recherche des réglages d'un compte (lot I1).
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Connexion TCP courte, pour un essai : chaque adresse du nom à son tour (une
+/// adresse IPv6 injoignable ne cache pas l'IPv4), trois au plus.
+fn probe_tcp(host: &str, port: u16) -> Option<TcpStream> {
+    let stream = (host, port).to_socket_addrs().ok()?.take(3).find_map(|addr| TcpStream::connect_timeout(&addr, PROBE_TIMEOUT).ok())?;
+    stream.set_read_timeout(Some(PROBE_TIMEOUT)).ok()?;
+    stream.set_write_timeout(Some(PROBE_TIMEOUT)).ok()?;
+    Some(stream)
+}
+
+/// Le serveur IMAP `host:port` répond avec le chiffrement `security`, certificat
+/// valable pour ce nom ; aucun identifiant n'est envoyé (lot I1).
+pub(crate) fn probe_imap(host: &str, port: u16, security: Security) -> bool {
+    let Some(tcp) = probe_tcp(host, port) else { return false };
+    match security {
+        Security::SslTls => tls(host, "", tcp).is_ok_and(|stream| Client::connect(stream).is_ok()),
+        Security::StartTls => {
+            let Ok(mut plain) = Client::connect(tcp) else { return false };
+            if plain.capabilities().is_empty() && plain.refresh_capabilities().is_err() {
+                return false;
+            }
+            plain.has_capability("STARTTLS") && plain.starttls().is_ok_and(|raw| tls(host, "", raw).is_ok())
+        }
+        Security::Auto | Security::Unencrypted => false,
+    }
+}
+
+/// Le serveur SMTP `host:port` accueille avec le chiffrement `security`, certificat
+/// valable pour ce nom ; aucun identifiant n'est envoyé (lot I1).
+pub(crate) fn probe_smtp(host: &str, port: u16, security: Security) -> bool {
+    let Some(tcp) = probe_tcp(host, port) else { return false };
+    let name = hello_name(&tcp);
+    match security {
+        Security::SslTls => tls(host, "", tcp).is_ok_and(|mut stream| smtp_expect_greeting(&mut stream).is_ok()),
+        Security::StartTls => {
+            let mut plain = tcp;
+            smtp_expect_greeting(&mut plain).is_ok()
+                && smtp_hello(&mut plain, &name).is_ok_and(|ehlo| ehlo.iter().any(|l| l.eq_ignore_ascii_case("STARTTLS")))
+                && smtp_cmd(&mut plain, "STARTTLS", 220).is_ok()
+                && tls(host, "", plain).is_ok()
+        }
+        Security::Auto | Security::Unencrypted => false,
+    }
+}
+
 /// Envoie un message déjà préparé par `mail_core::compose::smtp_data`.
 pub(crate) fn send_smtp(cfg: &ServerConfig, from: &str, recipients: &[String], data: &[u8]) -> Result<Security, String> {
     let mut c = smtp_open(cfg)?;
@@ -385,7 +544,7 @@ fn smtp_open(cfg: &ServerConfig) -> Result<SmtpConnection, String> {
     let tcp = smtp_tcp(host, cfg.port)?;
     let name = hello_name(&tcp);
     let mut stream: Box<dyn Stream> = match security {
-        Security::SslTls => Box::new(tls(host, tcp)?),
+        Security::SslTls => Box::new(tls(host, &cfg.pinned_cert, tcp)?),
         Security::StartTls => {
             let mut plain = tcp;
             smtp_expect_greeting(&mut plain)?;
@@ -394,7 +553,7 @@ fn smtp_open(cfg: &ServerConfig) -> Result<SmtpConnection, String> {
                 return Err(tr!("{host}:{port} ne propose pas STARTTLS. Essayez SSL/TLS (port 465).", host = host, port = cfg.port));
             }
             smtp_cmd(&mut plain, "STARTTLS", 220)?;
-            Box::new(tls(host, plain)?)
+            Box::new(tls(host, &cfg.pinned_cert, plain)?)
         }
         Security::Unencrypted | Security::Auto => Box::new(tcp),
     };
@@ -432,6 +591,7 @@ mod tests {
             auth,
             username: "f@outlook.fr".into(),
             password: String::new(),
+            pinned_cert: String::new(),
         }
     }
 
@@ -464,6 +624,126 @@ mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    /// Certificat auto-signé pour 127.0.0.1, comme celui de Proton Mail Bridge :
+    /// identité du serveur de test et certificat en DER.
+    ///
+    /// L'identité passe par un PKCS#12 : sous Windows (schannel),
+    /// `Identity::from_pkcs8` n'importe que des clés RSA, et rcgen génère une
+    /// clé ECDSA P-256.
+    fn self_signed() -> (native_tls::Identity, Vec<u8>) {
+        const ALIAS: &str = "serveur de test";
+        const PASSWORD: &str = "test";
+        let key = rcgen::KeyPair::generate().expect("clé de test");
+        let params = rcgen::CertificateParams::new(vec!["127.0.0.1".to_owned()]).expect("paramètres du certificat");
+        let cert = params.self_signed(&key).expect("certificat de test");
+        let der = cert.der().to_vec();
+        let chain = p12_keystore::PrivateKeyChain::new(
+            ALIAS,
+            p12_keystore::PrivateKey::from_der(&key.serialize_der()).expect("clé de test en PKCS#8"),
+            [p12_keystore::Certificate::from_der(&der).expect("certificat de test en DER")],
+        );
+        let mut store = p12_keystore::KeyStore::new();
+        store.add_entry(ALIAS, p12_keystore::KeyStoreEntry::PrivateKeyChain(chain));
+        let pfx = store.writer(PASSWORD).write().expect("PKCS#12 du serveur de test");
+        let identity = native_tls::Identity::from_pkcs12(&pfx, PASSWORD).expect("identité du serveur de test");
+        (identity, der)
+    }
+
+    /// Serveur SSL/TLS d'une seule connexion sur 127.0.0.1 ; rend son port.
+    fn serve_once(identity: native_tls::Identity) -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("port local");
+        let port = listener.local_addr().expect("adresse locale").port();
+        let acceptor = native_tls::TlsAcceptor::new(identity).expect("accepteur TLS");
+        std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                if let Ok(mut tls) = acceptor.accept(stream) {
+                    let _ = tls.write_all(b"* OK\r\n");
+                }
+            }
+        });
+        port
+    }
+
+    fn connect_pinned(pin: &str) -> Result<(), String> {
+        let (identity, _) = self_signed();
+        let port = serve_once(identity);
+        let stream = TcpStream::connect(("127.0.0.1", port)).map_err(|e| e.to_string())?;
+        tls("127.0.0.1", pin, stream).map(drop)
+    }
+
+    #[test]
+    fn i3_empreintes() {
+        // SHA-256 de « abc » (FIPS 180-2, annexe B.1).
+        let abc = fingerprint(b"abc");
+        assert!(abc.starts_with("BA:78:16:BF:8F:01:CF:EA:") && abc.ends_with(":F2:00:15:AD"), "{abc}");
+        assert!(is_fingerprint(&abc) && is_fingerprint(&abc.to_lowercase()));
+        assert!(!is_fingerprint(&abc[3..]) && !is_fingerprint(&abc.replace(':', "")) && !is_fingerprint(&abc.replace("BA", "ZZ")));
+        assert!(is_loopback("127.0.0.1") && is_loopback("::1") && is_loopback("127.0.0.2"));
+        assert!(!is_loopback("localhost") && !is_loopback("192.168.1.10") && !is_loopback("imap.exemple.fr"));
+    }
+
+    #[test]
+    fn i3_certificat_epingle() {
+        // L'empreinte du certificat du serveur : la connexion passe.
+        let (identity, der) = self_signed();
+        let port = serve_once(identity);
+        let stream = TcpStream::connect(("127.0.0.1", port)).expect("connexion locale");
+        let mut tls = tls("127.0.0.1", &fingerprint(&der).to_lowercase(), stream).expect("certificat épinglé accepté");
+        let mut greeting = [0u8; 6];
+        tls.read_exact(&mut greeting).expect("accueil du serveur");
+        assert_eq!(&greeting, b"* OK\r\n");
+
+        // Une autre empreinte : refus, rien n'est envoyé.
+        let other = fingerprint(b"autre certificat");
+        let e = connect_pinned(&other).expect_err("empreinte différente");
+        assert!(e.contains("a changé") && e.contains(&other), "{e}");
+
+        // Sans empreinte, un certificat auto-signé reste refusé par la bibliothèque du système.
+        assert!(connect_pinned("").is_err(), "certificat auto-signé accepté sans épinglage");
+    }
+
+    #[test]
+    fn i3_epinglage_hors_boucle_locale_refuse() {
+        // Refusé avant toute négociation : aucun octet n'est écrit.
+        let stream = std::io::Cursor::new(Vec::new());
+        let e = tls("imap.exemple.fr", &fingerprint(b"x"), stream).expect_err("hors de 127.0.0.1");
+        assert!(e.contains("127.0.0.1"), "{e}");
+    }
+
+    #[test]
+    fn i3_compte_avec_certificat_epingle() {
+        use crate::config::AccountConfig;
+        let server = |host: &str, port: u16, pin: &str| ServerConfig {
+            host: host.into(),
+            port,
+            security: Security::StartTls,
+            auth: AuthMethod::Normal,
+            username: "moi@proton.me".into(),
+            password: "mot de passe de Bridge".into(),
+            pinned_cert: pin.into(),
+        };
+        let pin = fingerprint(b"bridge");
+        let account = |imap: ServerConfig| AccountConfig {
+            id: String::new(),
+            name: "Proton".into(),
+            email: "moi@proton.me".into(),
+            display_name: String::new(),
+            color: "#000".into(),
+            imap,
+            smtp: server("127.0.0.1", 1025, &pin),
+            smtp_same_credentials: true,
+            oauth_client_id: String::new(),
+            dav_url: String::new(),
+            card_url: String::new(),
+        };
+        assert!(account(server("127.0.0.1", 1143, &pin)).validate().is_ok());
+        assert!(account(server("imap.exemple.fr", 993, &pin)).validate().is_err(), "épinglage hors de la boucle locale");
+        assert!(account(server("127.0.0.1", 1143, "AB:CD")).validate().is_err(), "empreinte tronquée");
+        let mut clear = server("127.0.0.1", 1143, &pin);
+        clear.security = Security::Unencrypted;
+        assert!(account(clear).validate().is_err(), "épinglage sans chiffrement");
     }
 
     #[test]

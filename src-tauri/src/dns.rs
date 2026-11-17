@@ -1,6 +1,10 @@
-//! Découverte des serveurs d'agenda et de contacts par le DNS (lot G3,
-//! RFC 6764 §3) : enregistrements `SRV` `_caldavs._tcp` et `_carddavs._tcp` du
-//! domaine de l'adresse, et `TXT` du même nom pour le chemin (`path=`).
+//! Découverte des serveurs par le DNS :
+//! - agenda et contacts (lot G3, RFC 6764 §3) : enregistrements `SRV`
+//!   `_caldavs._tcp` et `_carddavs._tcp` du domaine de l'adresse, et `TXT` du
+//!   même nom pour le chemin (`path=`) ;
+//! - courrier (lot I1, RFC 6186 et 8314) : `SRV` `_imaps._tcp`, `_imap._tcp`,
+//!   `_submissions._tcp`, `_submission._tcp`, et `MX` pour reconnaître
+//!   l'hébergeur d'un domaine personnel.
 //!
 //! La question passe par le résolveur du système, comme dans Thunderbird :
 //! - Linux et macOS : un petit client DNS sur UDP, sans dépendance, qui pose la
@@ -21,6 +25,7 @@ use self::win as system;
 /// Enregistrements lus au plus dans une réponse.
 const MAX_RECORDS: usize = 16;
 
+const TYPE_MX: u16 = 15;
 const TYPE_TXT: u16 = 16;
 const TYPE_SRV: u16 = 33;
 
@@ -39,19 +44,37 @@ fn txt_path(text: &str) -> Option<String> {
     (path.starts_with('/') && !path.contains(['\r', '\n', ' '])).then(|| path.to_string())
 }
 
-/// Serveurs `_caldavs._tcp` (`calendar`) ou `_carddavs._tcp` du domaine, par priorité puis
-/// poids, avec le chemin annoncé par `TXT` ; vide si le DNS ne dit rien.
-pub(crate) fn dav_servers(domain: &str, calendar: bool) -> Vec<(Srv, Option<String>)> {
-    let service = if calendar { "_caldavs._tcp" } else { "_carddavs._tcp" };
+/// Serveurs `SRV` du service `service` (`_imaps._tcp`…) pour `domain`, par priorité
+/// puis poids ; vide si le DNS ne dit rien ou annonce le service absent.
+pub(crate) fn srv_records(service: &str, domain: &str) -> Vec<Srv> {
     let name = format!("{service}.{}", domain.trim().trim_end_matches('.'));
     let mut servers = system::srv(&name);
     // Cible « . » : service explicitement absent (RFC 2782).
     servers.retain(|s| !s.target.is_empty() && s.target != "." && s.port != 0);
+    for s in &mut servers {
+        s.target = s.target.trim_end_matches('.').to_ascii_lowercase();
+    }
     servers.sort_by(|a, b| a.priority.cmp(&b.priority).then(b.weight.cmp(&a.weight)));
+    servers
+}
+
+/// Serveurs de réception du domaine (`MX`), par préférence, en minuscules.
+pub(crate) fn mx(domain: &str) -> Vec<String> {
+    let mut found = system::mx(domain.trim().trim_end_matches('.'));
+    found.retain(|(_, host)| !host.is_empty() && host != ".");
+    found.sort_by_key(|(preference, _)| *preference);
+    found.into_iter().map(|(_, host)| host.trim_end_matches('.').to_ascii_lowercase()).collect()
+}
+
+/// Serveurs `_caldavs._tcp` (`calendar`) ou `_carddavs._tcp` du domaine, par priorité puis
+/// poids, avec le chemin annoncé par `TXT` ; vide si le DNS ne dit rien.
+pub(crate) fn dav_servers(domain: &str, calendar: bool) -> Vec<(Srv, Option<String>)> {
+    let service = if calendar { "_caldavs._tcp" } else { "_carddavs._tcp" };
+    let servers = srv_records(service, domain);
     if servers.is_empty() {
         return Vec::new();
     }
-    let path = system::path(&name);
+    let path = system::path(&format!("{service}.{}", domain.trim().trim_end_matches('.')));
     servers.into_iter().map(|s| (s, path.clone())).collect()
 }
 
@@ -62,7 +85,7 @@ mod udp {
     use std::net::{SocketAddr, UdpSocket};
     use std::time::Duration;
 
-    use super::{txt_path, Srv, MAX_RECORDS, TYPE_SRV, TYPE_TXT};
+    use super::{txt_path, Srv, MAX_RECORDS, TYPE_MX, TYPE_SRV, TYPE_TXT};
 
     /// Attente d'une réponse.
     const TIMEOUT: Duration = Duration::from_secs(2);
@@ -83,6 +106,11 @@ mod udp {
     /// Chemin annoncé par l'enregistrement `TXT` de `name`.
     pub(super) fn path(name: &str) -> Option<String> {
         ask(name, TYPE_TXT).and_then(|(response, id)| parse_path(&response, id))
+    }
+
+    /// Enregistrements `MX` de `name` : (préférence, serveur).
+    pub(super) fn mx(name: &str) -> Vec<(u16, String)> {
+        ask(name, TYPE_MX).map_or_default(|(response, id)| parse_mx(&response, id))
     }
 
     /// Question DNS pour `name` (type `qtype`), avec l'identifiant `id` et la récursion demandée.
@@ -189,6 +217,12 @@ mod udp {
             .collect()
     }
 
+    /// Les enregistrements `MX` d'une réponse : (préférence, serveur).
+    fn parse_mx(message: &[u8], id: u16) -> Vec<(u16, String)> {
+        let Some(found) = answers(message, id, TYPE_MX) else { return Vec::new() };
+        found.into_iter().filter_map(|(at, _)| Some((u16_at(message, at)?, name_at(message, at.checked_add(2)?)?.0))).collect()
+    }
+
     /// Le chemin d'un enregistrement `TXT` (`path=/dav/`), s'il y en a un.
     fn parse_path(message: &[u8], id: u16) -> Option<String> {
         for (at, length) in answers(message, id, TYPE_TXT)? {
@@ -269,6 +303,27 @@ mod udp {
         }
 
         #[test]
+        fn reponse_mx() {
+            let mut m = query(9, "exemple.fr", TYPE_MX).unwrap();
+            m[2] = 0x81;
+            m[3] = 0x80;
+            m[7] = 1;
+            m.extend_from_slice(&[0xc0, 0x0c]);
+            m.extend_from_slice(&TYPE_MX.to_be_bytes());
+            m.extend_from_slice(&CLASS_IN.to_be_bytes());
+            m.extend_from_slice(&[0, 0, 0x0e, 0x10]);
+            // Préférence 10, « mx1 » suivi d'un pointeur vers « exemple.fr » de la question.
+            let rdata = [0, 10, 3, b'm', b'x', b'1', 0xc0, 0x0c];
+            m.extend_from_slice(&u16::try_from(rdata.len()).unwrap().to_be_bytes());
+            m.extend_from_slice(&rdata);
+            assert_eq!(parse_mx(&m, 9), vec![(10, "mx1.exemple.fr".to_string())]);
+            assert!(parse_mx(&m, 8).is_empty(), "autre identifiant : ignorée");
+            for cut in 0..m.len() {
+                let _ = parse_mx(&m[..cut], 9);
+            }
+        }
+
+        #[test]
         fn chemin_txt() {
             let mut m = query(7, "_caldavs._tcp.exemple.fr", TYPE_TXT).unwrap();
             m[2] = 0x81;
@@ -316,7 +371,7 @@ mod win {
 
     use windows_sys::Win32::NetworkManagement::Dns::{DnsFree, DnsQuery_W, DNS_RECORDW, DNS_TXT_DATAW};
 
-    use super::{txt_path, Srv, MAX_RECORDS, TYPE_SRV, TYPE_TXT};
+    use super::{txt_path, Srv, MAX_RECORDS, TYPE_MX, TYPE_SRV, TYPE_TXT};
 
     /// Longueur lue au plus d'un nom ou d'une chaîne, en unités UTF-16.
     const MAX_TEXT: usize = 1024;
@@ -391,6 +446,21 @@ mod win {
                 let data = unsafe { record.Data.SRV };
                 let target = wide(data.pNameTarget.cast_const())?;
                 Some(Srv { priority: data.wPriority, weight: data.wWeight, port: data.wPort, target })
+            })
+            .collect()
+    }
+
+    /// Enregistrements `MX` de `name` : (préférence, serveur).
+    pub(super) fn mx(name: &str) -> Vec<(u16, String)> {
+        let Some(list) = records(name, TYPE_MX) else { return Vec::new() };
+        walk(&list)
+            .into_iter()
+            // La liste peut aussi contenir des CNAME suivis en chemin.
+            .filter(|(_, record)| record.wType == TYPE_MX)
+            .filter_map(|(_, record)| {
+                // SAFETY: enregistrement de type MX : c'est la partie `MX` de l'union qui est remplie.
+                let data = unsafe { record.Data.MX };
+                Some((data.wPreference, wide(data.pNameExchange.cast_const())?))
             })
             .collect()
     }

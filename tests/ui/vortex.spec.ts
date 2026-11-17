@@ -164,3 +164,67 @@ test("E6 : paramètres et licences chargés à la demande", async ({ page }) => 
   await page.getByRole("button", { name: "Comptes et paramètres" }).click();
   await expect(page.getByRole("dialog", { name: "Paramètres" })).toBeVisible();
 });
+
+/** Ouvre l'assistant d'ajout de compte (lot I2) et cherche les réglages de l'adresse. */
+async function wizard(page: Page, email: string) {
+  await page.getByRole("button", { name: "Comptes et paramètres" }).click();
+  const settings = page.getByRole("dialog", { name: "Paramètres" });
+  await settings.getByRole("button", { name: "Ajouter un compte" }).click();
+  await settings.getByLabel("Votre nom").fill("Camille Martin");
+  await settings.getByLabel("Adresse e-mail").fill(email);
+  await settings.getByRole("button", { name: "Continuer" }).click();
+  return settings;
+}
+
+test("I2 : fournisseur trouvé, compte testé puis ajouté", async ({ page }) => {
+  const settings = await wizard(page, "camille@exemple.fr");
+  await expect(settings.getByText("Source : base des fournisseurs de Thunderbird (copie intégrée)")).toBeVisible();
+  await expect(settings.getByText("imap.exemple.fr:993 (SSL/TLS)")).toBeVisible();
+  await settings.getByLabel("Mot de passe").fill("secret");
+  await settings.getByRole("button", { name: "Se connecter" }).click();
+  await expect(page.getByText("Compte ajouté", { exact: true })).toBeVisible();
+  // Retour à la liste, avec le nouveau compte.
+  await expect(settings.getByRole("heading", { name: "Comptes de messagerie" })).toBeVisible();
+  await expect(settings.getByText("camille@exemple.fr")).toBeVisible();
+});
+
+test("I2 : mot de passe refusé, l'erreur s'affiche et rien n'est ajouté", async ({ page }) => {
+  const settings = await wizard(page, "camille@exemple.fr");
+  await settings.getByLabel("Mot de passe").fill("faux");
+  await settings.getByRole("button", { name: "Se connecter" }).click();
+  await expect(settings.getByText("Identifiant ou mot de passe refusé (AUTHENTICATIONFAILED)").first()).toBeVisible();
+  await expect(settings.getByRole("button", { name: "Se connecter" })).toBeEnabled();
+  await expect(page.getByText("Compte ajouté", { exact: true })).toHaveCount(0);
+});
+
+test("I2 : serveurs hors du domaine signalés, domaine inconnu vers le formulaire complet", async ({ page }) => {
+  const settings = await wizard(page, "camille@hebergeur.example");
+  await expect(settings.getByText("Serveurs hors de votre domaine")).toBeVisible();
+  await settings.getByLabel("Adresse e-mail").fill("camille@inconnu.example");
+  await settings.getByRole("button", { name: "Continuer" }).click();
+  await expect(settings.getByText("Réglages introuvables")).toBeVisible();
+  await settings.getByRole("button", { name: "Modifier à la main" }).click();
+  await expect(settings.getByRole("heading", { name: "Ajouter un compte IMAP" })).toBeVisible();
+  // Adresse, nom et identifiant repris de l'assistant.
+  await expect(settings.getByLabel("Adresse e-mail")).toHaveValue("camille@inconnu.example");
+  await expect(settings.getByLabel("Votre nom")).toHaveValue("Camille Martin");
+});
+
+test("I3 : Proton Mail par Bridge, certificat confirmé avant le mot de passe", async ({ page }) => {
+  const settings = await wizard(page, "camille@proton.me");
+  await expect(settings.getByText("Proton Mail passe par Proton Mail Bridge")).toBeVisible();
+  await expect(settings.getByRole("button", { name: "Se connecter" })).toBeDisabled();
+  await settings.getByRole("button", { name: "Lire le certificat de Bridge" }).click();
+  await expect(settings.getByText(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/)).toBeVisible();
+  // Le mot de passe de Bridge n'est demandé qu'une fois le certificat accepté.
+  await expect(settings.getByLabel("Mot de passe de Bridge")).toHaveCount(0);
+  await settings.getByRole("checkbox").check();
+  await settings.getByLabel("Mot de passe de Bridge").fill("secret");
+  await settings.getByRole("button", { name: "Se connecter" }).click();
+  await expect(page.getByText("Compte ajouté", { exact: true })).toBeVisible();
+  // Le compte enregistré garde l'empreinte, montrée dans son formulaire.
+  await settings.getByRole("button", { name: "Actions pour Proton Mail" }).click();
+  await page.getByRole("menuitem", { name: "Modifier" }).click();
+  await expect(settings.getByRole("group", { name: "Proton Mail Bridge" })).toBeVisible();
+  await expect(settings.getByText(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/)).toBeVisible();
+});

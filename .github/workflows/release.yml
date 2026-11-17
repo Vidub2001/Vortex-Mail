@@ -46,6 +46,10 @@ jobs:
             exit 1
           fi
           echo "version=$app" >> "$GITHUB_OUTPUT"
+      # Copie de l'ISPDB de Thunderbird (lot I1) : rafraîchie avant l'étiquette par
+      # `make ispdb`, jamais pendant la construction (le code publié doit être celui construit).
+      - name: Copie de l'ISPDB récente
+        run: python3 scripts/ispdb.py age 60
 
   linux:
     name: Linux
@@ -153,6 +157,12 @@ jobs:
           find livraison -mindepth 1 -type d -empty -delete
           # GitHub remplace les espaces des noms de fichiers par des points : faire de même avant SHA256SUMS.
           for f in livraison/*\ *; do [ -e "$f" ] && mv -- "$f" "${f// /.}"; done
+          # Noms fixes, sans numéro de version : liens stables …/releases/latest/download/<nom>
+          # pour la page Téléchargement du site (lot S1). Échoue si un nom attendu manque.
+          mv -- livraison/Vortex.Mail_*_amd64.deb livraison/Vortex.Mail_amd64.deb
+          mv -- livraison/Vortex.Mail_*_amd64.AppImage livraison/Vortex.Mail_amd64.AppImage
+          mv -- livraison/Vortex.Mail_*_x64-setup.exe livraison/Vortex.Mail_x64-setup.exe
+          mv -- livraison/VortexMail-portable-*.zip livraison/Vortex.Mail_x64-portable.zip
           ls -l livraison
       - name: Empreintes SHA256SUMS (signées si la clé GPG est fournie)
         env:

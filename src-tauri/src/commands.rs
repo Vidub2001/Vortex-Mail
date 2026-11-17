@@ -1009,6 +1009,19 @@ fn reuse_passwords(existing: &AccountConfig, config: &mut AccountConfig) -> CmdR
     Ok(())
 }
 
+/// Réglages d'un compte trouvés d'après son adresse (lot I1), sans mot de passe.
+#[tauri::command]
+pub(crate) async fn detect_account(email: String) -> CmdResult<crate::autoconfig::Detected> {
+    blocking(move || crate::autoconfig::detect(&email)).await
+}
+
+/// Empreinte du certificat de Proton Mail Bridge sur cet ordinateur (lot I3), à
+/// montrer à l'utilisateur avant de l'épingler dans le compte.
+#[tauri::command]
+pub(crate) async fn bridge_certificate(port: u16, security: config::Security) -> CmdResult<String> {
+    blocking(move || transport::bridge_fingerprint(port, security)).await
+}
+
 /// Bouton « Tester les paramètres du compte ».
 #[tauri::command]
 pub(crate) async fn test_account(state: State<'_, AppState>, mut config: AccountConfig) -> CmdResult<TestReport> {
@@ -1571,6 +1584,25 @@ mod tests {
         let mut edited = account("imap.attaquant.example", "smtp.example.fr", "", true);
         assert!(reuse_passwords(&existing, &mut edited).is_err());
         assert_eq!(edited.imap.password, "");
+    }
+
+    #[test]
+    fn i3_mot_de_passe_redemande_si_le_certificat_de_bridge_change() {
+        let pin = |p: &str, c: &mut AccountConfig| {
+            c.imap.pinned_cert = p.into();
+            c.smtp.pinned_cert = p.into();
+        };
+        let mut existing = account("127.0.0.1", "127.0.0.1", "secret", true);
+        pin(&crate::transport::fingerprint(b"bridge"), &mut existing);
+        let mut same = account("127.0.0.1", "127.0.0.1", "", true);
+        pin(&crate::transport::fingerprint(b"bridge").to_lowercase(), &mut same);
+        reuse_passwords(&existing, &mut same).unwrap();
+        assert_eq!(same.imap.password, "secret");
+
+        let mut other = account("127.0.0.1", "127.0.0.1", "", true);
+        pin(&crate::transport::fingerprint(b"autre programme"), &mut other);
+        assert!(reuse_passwords(&existing, &mut other).is_err());
+        assert_eq!(other.imap.password, "");
     }
 
     #[test]

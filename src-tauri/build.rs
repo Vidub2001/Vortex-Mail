@@ -59,6 +59,8 @@ const COMMANDS: &[&str] = &[
     "import_messages",
     "export_pim",
     "import_pim",
+    "detect_account",
+    "bridge_certificate",
     "delete_forever",
     "oauth_status",
     "google_sign_in",

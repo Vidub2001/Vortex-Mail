@@ -9,6 +9,7 @@ mod i18n;
 pub mod attachments;
 mod auth;
 mod authres;
+mod autoconfig;
 mod backup;
 mod cache;
 mod commands;
@@ -126,6 +127,12 @@ pub mod fuzz_api {
         let _ = crate::http::parse_response(raw);
         let _ = crate::oauth::parse_http_response(raw);
         let _ = crate::oauth::decode_chunked(raw);
+    }
+
+    /// Un document `clientConfig` (fichier publié par un domaine, copie de
+    /// l'ISPDB) : serveurs choisis, identifiant, nom et aide du fournisseur (lot I1).
+    pub fn autoconfig(raw: &[u8]) {
+        crate::autoconfig::fuzz_document(&String::from_utf8_lossy(raw));
     }
 
     /// Les réponses d'un serveur SMTP, lues l'une après l'autre jusqu'à la
@@ -493,6 +500,8 @@ pub fn run() {
             commands::import_messages,
             commands::export_pim,
             commands::import_pim,
+            commands::detect_account,
+            commands::bridge_certificate,
             commands::delete_forever,
             commands::oauth_status,
             commands::google_sign_in,

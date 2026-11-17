@@ -12,7 +12,7 @@ Client de messagerie libre pour Linux et Windows, écrit en Rust avec Tauri.
 ![Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0b2545)
 ![Rust | Tauri 2](https://img.shields.io/badge/Rust-Tauri%202-ef5a5f)
 
-[**Télécharger**](https://github.com/Vidub2001/Vortex-Mail/releases/latest) · [Site web](https://vortexmail.fr/fr/) · [Compilation](docs/COMPILATION.md) · [Modèle de menace](docs/MODELE-MENACE.md)
+[**Télécharger**](https://github.com/Vidub2001/Vortex-Mail/releases/latest) · [Site web](https://vortexmail.fr/fr/) · [FAQ](https://vortexmail.fr/fr/faq.html) · [Guides](https://vortexmail.fr/fr/guides/) · [Compilation](docs/COMPILATION.md) · [Modèle de menace](docs/MODELE-MENACE.md)
 
 **Français** · [English](README.md) · [Español](README.es.md)
 
@@ -52,7 +52,7 @@ Les versions sont construites à partir de ce dépôt par GitHub Actions. Chacun
 
 Les fichiers Windows ne sont pas encore signés : Windows peut afficher un avertissement à la première installation.
 
-> **État :** version 0.2.4, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
+> **État :** version 0.3.0, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
 
 ## Fonctionnalités
 
@@ -167,8 +167,13 @@ sont décrits dans **[docs/COMPILATION.md](docs/COMPILATION.md)**.
 
 ## Ajouter un compte
 
-Paramètres (engrenage) → Comptes → « Ajouter un compte ». Pour les fournisseurs connus (Gmail,
-Outlook.com, Mailo…), les serveurs se remplissent seuls. Types de connexion :
+Paramètres (engrenage) → Comptes → « Ajouter un compte ». Votre nom et votre adresse suffisent :
+Vortex Mail cherche les réglages (fournisseurs connus, copie intégrée de la base des fournisseurs
+de Thunderbird, DNS du domaine, fichier publié par le domaine, puis noms habituels essayés sans mot
+de passe), montre d'où ils viennent, puis teste le compte avant de l'ajouter. Aucune requête ne
+part vers un service tiers, et des serveurs hors de votre domaine sont signalés. « Modifier à la
+main » ouvre le formulaire complet, prérempli. Proton Mail passe par Proton Mail Bridge : son
+certificat, propre à votre ordinateur, est lu, confirmé une fois puis exigé à chaque connexion. Types de connexion :
 
 | Choix    | IMAP | SMTP | Fonctionnement |
 |----------|------|------|----------------|

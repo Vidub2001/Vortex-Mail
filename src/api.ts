@@ -6,6 +6,7 @@ import type {
   CalEvent,
   Contact,
   CorrespondentInfo,
+  Detected,
   Draft,
   DraftContent,
   FlushReport,
@@ -23,6 +24,7 @@ import type {
   RecipientCheck,
   SavedDraft,
   SearchReport,
+  Security,
   SigningAccount,
   SmimeIdentity,
   Suggestion,
@@ -343,13 +345,21 @@ export const api = {
     inTauri ? invoke("open_url", { url }) : Promise.resolve(void window.open(url, "_blank", "noopener")),
 
   listAccountConfigs: (): Promise<AccountConfig[]> =>
-    inTauri ? invoke("list_account_configs") : Promise.resolve([]),
+    inTauri ? invoke("list_account_configs") : mock.listAccountConfigs(),
+
+  /** Réglages d'un compte trouvés d'après son adresse, sans mot de passe (lot I1). */
+  detectAccount: (email: string): Promise<Detected> =>
+    inTauri ? invoke("detect_account", { email }) : mock.detectAccount(email),
+
+  /** Empreinte du certificat de Proton Mail Bridge sur cet ordinateur, à confirmer avant de l'épingler (lot I3). */
+  bridgeCertificate: (port: number, security: Security): Promise<string> =>
+    inTauri ? invoke("bridge_certificate", { port, security }) : mock.bridgeCertificate(),
 
   testAccount: (config: AccountConfig): Promise<TestReport> =>
-    inTauri ? invoke("test_account", { config }) : mock.testAccount(),
+    inTauri ? invoke("test_account", { config }) : mock.testAccount(config),
 
   addAccount: (config: AccountConfig): Promise<Account> =>
-    inTauri ? invoke("add_account", { config }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("add_account", { config }) : mock.addAccount(config),
 
   /** Mot de passe vide = inchangé. */
   updateAccount: (config: AccountConfig): Promise<Account> =>

@@ -2977,6 +2977,7 @@ mod tests {
             auth: AuthMethod::Normal,
             username: "moi@example.com".into(),
             password: String::new(),
+            pinned_cert: String::new(),
         };
         AccountConfig {
             id: id.into(),
