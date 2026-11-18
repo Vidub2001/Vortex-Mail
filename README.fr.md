@@ -52,7 +52,7 @@ Les versions sont construites à partir de ce dépôt par GitHub Actions. Chacun
 
 Les fichiers Windows ne sont pas encore signés : Windows peut afficher un avertissement à la première installation.
 
-> **État :** version 0.3.2, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
+> **État :** version 0.3.3, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
 
 ## Fonctionnalités
 
@@ -306,7 +306,7 @@ Les versions sont construites à partir de ce dépôt par GitHub Actions et publ
 
 ## Remerciements
 
-Merci à Vincent Corlaix, qui a testé la prise en charge de Proton Mail (par Proton Mail Bridge).
+Merci à Vincent Corlaix, qui a testé la prise en charge de Proton Mail (par Proton Mail Bridge) et donné l'idée du menu de sélection de la liste des messages.
 
 ## Licence
 

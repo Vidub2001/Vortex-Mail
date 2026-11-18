@@ -5727,7 +5727,7 @@ dependencies = [
 
 [[package]]
 name = "vortexmail"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "ammonia",
  "getrandom 0.2.17",

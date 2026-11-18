@@ -291,3 +291,30 @@ test("Restaurer : un message supprimé revient dans son dossier d'origine", asyn
   await page.getByRole("treeitem").filter({ hasText: "Boîte de réception" }).first().click();
   await expect(list.getByText("Repas de dimanche")).toBeVisible();
 });
+
+test("menu de sélection : non lus, aucun, tous", async ({ page }) => {
+  const list = page.getByRole("listbox", { name: "Messages" });
+  await expect(list.locator(".msg").first()).toBeVisible();
+  const unread = await list.locator(".msg.unread").count();
+  expect(unread).toBeGreaterThan(1);
+  await page.getByRole("checkbox", { name: "Sélectionner", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Non lus", exact: true }).click();
+  await expect(list.locator(".msg.selected")).toHaveCount(unread);
+  await expect(list.locator(".msg.selected:not(.unread)")).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "Sélectionner", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Aucun", exact: true }).click();
+  await expect(list.locator(".msg.selected")).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "Sélectionner", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Tous", exact: true }).click();
+  await expect(list.locator(".msg.selected")).toHaveCount(await list.locator(".msg").count());
+});
+
+test("clic droit › Marquer comme lu sur toute la sélection", async ({ page }) => {
+  const list = page.getByRole("listbox", { name: "Messages" });
+  await expect(list.locator(".msg").first()).toBeVisible();
+  await page.getByRole("checkbox", { name: "Sélectionner", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Non lus", exact: true }).click();
+  await list.locator(".msg.selected").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Marquer comme lu" }).click();
+  await expect(list.locator(".msg.unread")).toHaveCount(0);
+});

@@ -858,6 +858,13 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     anchorId.current = null;
   };
 
+  /** Menu de sélection (comme Mailo) : parmi les messages affichés. */
+  const selectWhere = (which: "all" | "none" | "unread" | "read") => {
+    const chosen = which === "all" ? visible : which === "none" ? [] : visible.filter((m) => m.flags.seen === (which === "read"));
+    setSelectedIds(chosen.map((m) => m.id));
+    anchorId.current = null;
+  };
+
   // ---------------------------------------------------------- barre de gauche
 
   /** Vue affichée : courrier, agenda ou contacts. */
@@ -944,6 +951,28 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
       list.map((m) => (selectedIds.includes(m.id) ? { ...m, flags: { ...m.flags, seen: !allSeen } } : m)),
     );
     reloadFolders();
+  };
+
+  /** Clic droit : la sélection si le message en fait partie, sinon lui seul. */
+  const selectionWith = (m: MessageSummary) => (selectedIds.includes(m.id) ? selectedIds : [m.id]);
+
+  /** Clic droit › Marquer comme lu / non lu : d'après l'état du message cliqué. */
+  const menuSeen = async (m: MessageSummary) => {
+    const ids = selectionWith(m);
+    const seen = !m.flags.seen;
+    await api.setSeen(ids, seen).catch(fail);
+    refreshPending();
+    patchList((list) => list.map((x) => (ids.includes(x.id) ? { ...x, flags: { ...x.flags, seen } } : x)));
+    reloadFolders();
+  };
+
+  /** Clic droit › indicateur : d'après l'état du message cliqué. */
+  const menuFlag = async (m: MessageSummary) => {
+    const ids = selectionWith(m);
+    const flagged = !m.flags.flagged;
+    await api.setFlagged(ids, flagged).catch(fail);
+    refreshPending();
+    patchList((list) => list.map((x) => (ids.includes(x.id) ? { ...x, flags: { ...x.flags, flagged } } : x)));
   };
 
   const toggleFlag = async () => {
@@ -1562,6 +1591,9 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
             filter={filter}
             onFilter={setFilter}
             onSelectAll={selectAll}
+            onSelectWhere={selectWhere}
+            onMenuSeen={menuSeen}
+            onMenuFlag={menuFlag}
             onSelect={select}
             onOpen={(m) => {
               const isDraft = folderById.get(m.folderId)?.role === "drafts";

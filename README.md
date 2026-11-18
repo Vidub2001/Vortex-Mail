@@ -52,7 +52,7 @@ Releases are built from this repository by GitHub Actions. Each one comes with `
 
 Windows files are not signed yet, so Windows may show a warning on first install.
 
-> **Status:** version 0.3.2, used every day by its author. Feedback and bug reports are welcome.
+> **Status:** version 0.3.3, used every day by its author. Feedback and bug reports are welcome.
 
 ## Features
 
@@ -294,7 +294,7 @@ Releases are built from this repository by GitHub Actions and published on the R
 
 ## Thanks
 
-Thanks to Vincent Corlaix for testing Proton Mail support (through Proton Mail Bridge).
+Thanks to Vincent Corlaix for testing Proton Mail support (through Proton Mail Bridge), and for the idea of the selection menu in the message list.
 
 ## License
 

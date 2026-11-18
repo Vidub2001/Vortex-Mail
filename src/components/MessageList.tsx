@@ -2,6 +2,7 @@ import {
   Avatar,
   Checkbox,
   Menu,
+  MenuItem,
   MenuItemRadio,
   MenuList,
   MenuPopover,
@@ -65,6 +66,8 @@ interface Props {
   filter: FilterMode;
   onFilter: (filter: FilterMode) => void;
   onSelectAll: (all: boolean) => void;
+  /** Menu à côté de la case : tout, rien, les non lus ou les lus de la liste affichée. */
+  onSelectWhere: (which: "all" | "none" | "unread" | "read") => void;
   onSelect: (id: number, mode: "single" | "toggle" | "range") => void;
   /** Double-clic : ouvre le message dans sa propre fenêtre. */
   onOpen: (m: MessageSummary) => void;
@@ -74,6 +77,9 @@ interface Props {
   onQuickSeen: (m: MessageSummary) => void;
   onQuickFlag: (m: MessageSummary) => void;
   onQuickDelete: (m: MessageSummary) => void;
+  /** Clic droit › lu / non lu et indicateur : ce message, ou la sélection qui le contient. */
+  onMenuSeen: (m: MessageSummary) => void;
+  onMenuFlag: (m: MessageSummary) => void;
   /** Clic droit › Supprimer (ce message, ou la sélection qui le contient). */
   onMenuDelete: (m: MessageSummary) => void;
   /** Clic droit › Restaurer, pour un message d'« Éléments supprimés » (ou la sélection qui le contient). */
@@ -265,12 +271,12 @@ export function MessageList(p: Props) {
       {
         label: m.flags.seen ? t("Marquer comme non lu") : t("Marquer comme lu"),
         icon: m.flags.seen ? <MailUnread16Regular /> : <MailRead16Regular />,
-        onClick: () => p.onQuickSeen(m),
+        onClick: () => p.onMenuSeen(m),
       },
       {
         label: m.flags.flagged ? t("Retirer l'indicateur") : t("Ajouter un indicateur"),
         icon: m.flags.flagged ? <Flag16Filled /> : <Flag16Regular />,
-        onClick: () => p.onQuickFlag(m),
+        onClick: () => p.onMenuFlag(m),
       },
       {
         label: t("Créer une règle : messages de {sender}…", { sender }),
@@ -299,13 +305,27 @@ export function MessageList(p: Props) {
   return (
     <section className="pane message-list" aria-label={t("Messages")}>
       <div className="list-tools">
-        <Checkbox
-          checked={allSelected ? true : someSelected ? "mixed" : false}
-          onChange={(_, d) => p.onSelectAll(d.checked === true)}
-          aria-label={t("Tout sélectionner")}
-          title={t("Tout sélectionner")}
-          disabled={p.messages.length === 0}
-        />
+        {/* Comme Mailo : la case ouvre le choix (tous, aucun, non lus, lus) au lieu de tout cocher. */}
+        <Menu>
+          <MenuTrigger disableButtonEnhancement>
+            <Checkbox
+              checked={allSelected ? true : someSelected ? "mixed" : false}
+              onChange={() => undefined}
+              aria-label={t("Sélectionner")}
+              aria-haspopup="menu"
+              title={t("Sélectionner")}
+              disabled={p.messages.length === 0}
+            />
+          </MenuTrigger>
+          <MenuPopover>
+            <MenuList>
+              <MenuItem onClick={() => p.onSelectWhere("all")}>{t("Tous")}</MenuItem>
+              <MenuItem onClick={() => p.onSelectWhere("none")}>{t("Aucun")}</MenuItem>
+              <MenuItem onClick={() => p.onSelectWhere("unread")}>{t("Non lus")}</MenuItem>
+              <MenuItem onClick={() => p.onSelectWhere("read")}>{t("Lus")}</MenuItem>
+            </MenuList>
+          </MenuPopover>
+        </Menu>
         <SearchBox
           className="list-search"
           size="small"

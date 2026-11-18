@@ -943,6 +943,8 @@ const es: Record<string, string> = {
   "{n} éléments restaurés": "{n} elementos restaurados",
   "{n} élément restauré": "{n} elemento restaurado",
   "{n} sans dossier d'origine connu : remis dans la boîte de réception": "{n} sin carpeta de origen conocida: devueltos a la Bandeja de entrada",
+  "Sélectionner": "Seleccionar",
+  "Lus": "Leídos",
 };
 
 export default es;
