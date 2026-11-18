@@ -17,7 +17,8 @@ use crate::attachments;
 use crate::cache::Cache;
 use crate::config::{self, same_server, AccountConfig};
 use crate::router::{
-    lock_cache, AccountError, AttachmentInput, DraftContent, FlushReport, PrefetchReport, RestoreReport, Router, SavedDraft, SearchReport,
+    lock_cache, AccountError, AttachmentInput, DraftContent, FlushReport, PlainReplacement, PrefetchReport, RestoreReport, Router,
+    SavedDraft, SearchReport,
 };
 use crate::sanitize;
 use crate::secrets;
@@ -325,11 +326,14 @@ pub(crate) async fn save_draft(
     draft: Draft,
     attachments: Option<Vec<AttachmentInput>>,
     replace: Option<MessageId>,
+    allow_plain: Option<bool>,
 ) -> CmdResult<SavedDraft> {
     let router = router(&state);
     let attachments = attachments.unwrap_or_default();
     check_sources(&window, &attachments)?;
-    blocking(move || router.save_draft(&account_id, draft, attachments, replace).map_err(|e| e.to_string())).await
+    // Brouillon chiffré remplacé en clair seulement sur demande de la rédaction (audit S4).
+    let plain = if allow_plain == Some(true) { PlainReplacement::Confirmed } else { PlainReplacement::Refused };
+    blocking(move || router.save_draft(&account_id, draft, attachments, replace, plain).map_err(|e| e.to_string())).await
 }
 
 #[tauri::command]

@@ -43,3 +43,13 @@ test("n° 23 : rédaction ouverte par mailto, texte échappé", () => {
   assert.equal(init.cc, "c@z.fr");
   assert.ok(init.html.startsWith("<p>1<br>&lt;b&gt;2&lt;/b&gt;</p>"), init.html);
 });
+
+test("S4 : un message à chiffrer ne part jamais en clair sans le demander", async () => {
+  const { encryptionCheck, secureFlags } = await import("../../src/compose.ts");
+  assert.equal(encryptionCheck(false, false, true), "ok", "rien à chiffrer");
+  assert.equal(encryptionCheck(true, true, true), "ok", "certificat prêt");
+  assert.equal(encryptionCheck(true, false, false), "waiting", "certificats pas encore lus");
+  assert.equal(encryptionCheck(true, false, true), "unavailable", "certificat absent, illisible ou autre compte");
+  assert.deepEqual(secureFlags(true, true, false), { sign: false, encrypt: true }, "« Chiffrer » gardé sans certificat");
+  assert.deepEqual(secureFlags(true, false, true), { sign: true, encrypt: false });
+});

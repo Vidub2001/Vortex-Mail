@@ -527,12 +527,25 @@ pub(crate) struct IdentityInfo {
     sign_by_default: bool,
 }
 
-/// Compte qui peut signer, pour la fenêtre de rédaction.
+/// Compte qui a un certificat S/MIME, pour la fenêtre de rédaction.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SigningAccount {
     account_id: String,
     sign_by_default: bool,
+    state: CertificateState,
+}
+
+/// Certificat d'un compte tel que la rédaction le trouve (audit S4) : un
+/// fichier présent mais illisible n'est pas pris pour une absence de
+/// certificat, sans quoi un brouillon à chiffrer repartirait en clair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum CertificateState {
+    /// Certificat lu : le compte peut signer et chiffrer.
+    Ready,
+    /// Fichier du certificat présent mais illisible.
+    Unreadable,
 }
 
 /// Nom de fichier tiré de l'identifiant d'un compte : seulement des lettres,
@@ -677,15 +690,29 @@ pub(crate) fn forget(account_id: &str) -> Result<(), String> {
     }
 }
 
-/// Comptes qui peuvent signer, parmi `accounts`.
+/// Comptes qui ont un certificat, lisible ou non, parmi `accounts`.
 pub(crate) fn signers(accounts: &[AccountConfig]) -> Vec<SigningAccount> {
     accounts
         .iter()
         .filter_map(|c| {
-            let stored = read_stored(&c.id).filter(|s| !s.certificates.is_empty())?;
-            Some(SigningAccount { account_id: c.id.clone(), sign_by_default: stored.sign_by_default })
+            let present = file_of(&c.id).is_some_and(|file| file.exists());
+            signer_of(&c.id, read_stored(&c.id).as_ref(), present)
         })
         .collect()
+}
+
+/// Ce que la rédaction apprend du certificat d'un compte : `stored`, le
+/// fichier lu ; `present`, le fichier existe sur le disque.
+fn signer_of(account_id: &str, stored: Option<&Stored>, present: bool) -> Option<SigningAccount> {
+    let account_id = account_id.to_string();
+    match stored {
+        Some(stored) if !stored.certificates.is_empty() => {
+            Some(SigningAccount { account_id, sign_by_default: stored.sign_by_default, state: CertificateState::Ready })
+        }
+        None if present => Some(SigningAccount { account_id, sign_by_default: false, state: CertificateState::Unreadable }),
+        // Certificat retiré (liste vide), ou aucun fichier.
+        Some(_) | None => None,
+    }
 }
 
 /// Signature d'un message à envoyer par le compte `config`, à l'instant
@@ -928,6 +955,17 @@ pub(crate) fn encrypt(config: &AccountConfig, content: &[u8], recipients: &[Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn s4_certificat_illisible_distingue_de_l_absence() {
+        let stored = || Stored { certificates: vec!["MIIB".into()], sign_by_default: true };
+        let ready = signer_of("a", Some(&stored()), true).expect("certificat lu");
+        assert_eq!((ready.state, ready.sign_by_default), (CertificateState::Ready, true));
+        let unreadable = signer_of("a", None, true).expect("fichier présent mais illisible");
+        assert_eq!(unreadable.state, CertificateState::Unreadable);
+        assert!(signer_of("a", None, false).is_none(), "pas de certificat");
+        assert!(signer_of("a", Some(&Stored { certificates: Vec::new(), sign_by_default: false }), true).is_none(), "certificat retiré");
+    }
 
     /// Messages signés par Alice (autorité de test reprise avec la crate), et une date
     /// où son certificat est valide.

@@ -362,3 +362,18 @@ fn copy_reply_lost_does_not_duplicate() {
     assert_eq!(count(&backend.inner, "pro:INBOX"), target + 1, "une seule copie");
     assert!(backend.inner.fetch_raw(id).is_err(), "source supprimée");
 }
+
+#[test]
+fn b5_empty_message_is_never_copied() {
+    // Un message vide (corps non reçu du serveur) ne remplace jamais l'original.
+    let mut inner = store();
+    let raw = RawMessage { bytes: Vec::new(), flags: Flags::default(), internal_date: NOW };
+    let id = inner.insert("perso:INBOX", raw).expect("ajout dans un dossier de démonstration");
+    let (inbox, target) = (count(&inner, "perso:INBOX"), count(&inner, "pro:INBOX"));
+    let mut journal = Journal::default();
+
+    let report = move_messages(&mut inner, &mut journal, &[id], "pro:INBOX").expect("bilan du déplacement");
+    assert_eq!(report.failed.len(), 1, "déplacement refusé : {report:?}");
+    assert_eq!(count(&inner, "perso:INBOX"), inbox, "original gardé");
+    assert_eq!(count(&inner, "pro:INBOX"), target, "rien de déposé");
+}

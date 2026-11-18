@@ -26,7 +26,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, runningInTauri } from "../api";
 import { t } from "../i18n";
-import { parseAddresses, type ComposeAttachment, type ComposeInit } from "../compose";
+import { encryptionCheck, parseAddresses, secureFlags, type ComposeAttachment, type ComposeInit } from "../compose";
 import { fileSize } from "../format";
 import type { Account, AttachmentInput, Draft, SigningAccount } from "../types";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -144,6 +144,8 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
   const [plain, setPlain] = useState(() => init.plainText ?? loadPlain());
   /** Comptes qui ont un certificat de signature S/MIME (lot D2). */
   const [signers, setSigners] = useState<SigningAccount[]>([]);
+  /** Liste des certificats reçue du backend (ou sa lecture échouée). */
+  const [signersLoaded, setSignersLoaded] = useState(false);
   /** « Signer » enfoncé : le message part signé en S/MIME. */
   const [sign, setSign] = useState(false);
   /** « Chiffrer » enfoncé (lot D3b), et destinataires sans certificat connu. */
@@ -151,7 +153,21 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
   const [unencryptable, setUnencryptable] = useState<string[]>([]);
   /** Destinataires dont le certificat vient d'une autorité inconnue (lot D4). */
   const [unverified, setUnverified] = useState<string[]>([]);
-  const canSign = signers.some((s) => s.accountId === accountId);
+  const canSign = signers.some((s) => s.accountId === accountId && s.state === "ready");
+  const certificateUnreadable = signers.some((s) => s.accountId === accountId && s.state === "unreadable");
+  /** « Chiffrer » désactivé par l'utilisateur : un brouillon chiffré peut être remplacé en clair. */
+  const [allowPlain, setAllowPlain] = useState(false);
+  /** Chiffrement demandé mais impossible avec ce compte (audit S4). */
+  const encryption = encryptionCheck(encrypt, canSign, signersLoaded);
+  const encryptionRef = useRef(encryption);
+  encryptionRef.current = encryption;
+  const allowPlainRef = useRef(allowPlain);
+  allowPlainRef.current = allowPlain;
+  const unavailableText = certificateUnreadable
+    ? t("Ce message doit partir chiffré, mais le certificat de ce compte est illisible. Réimportez-le dans Paramètres, sur la fiche du compte, ou désactivez « Chiffrer » pour l'envoyer en clair.")
+    : t("Ce message doit partir chiffré, mais le certificat de ce compte n'est pas disponible. Choisissez un compte qui a un certificat, ou désactivez « Chiffrer » pour l'envoyer en clair.");
+  const unavailableRef = useRef(unavailableText);
+  unavailableRef.current = unavailableText;
   /** État de l'enregistrement automatique, affiché en haut à droite. */
   const [status, setStatus] = useState<string | null>(null);
   /** Nombre de modifications : relance le minuteur d'enregistrement automatique. */
@@ -259,8 +275,7 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
       inReplyTo: init.inReplyTo,
       references: init.references,
       sendKey: sendKey.current,
-      sign: canSign && sign,
-      encrypt: canSign && encrypt,
+      ...secureFlags(sign, encrypt, canSign),
     };
     const attachments: AttachmentInput[] = files.map(({ key, size, ...input }) => {
       void key;
@@ -295,6 +310,11 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
   const saveDraft = useCallback(async (force = false): Promise<boolean> => {
     if (saving.current) await saving.current;
     if (closed.current) return true;
+    // Chiffrement demandé sans certificat : ni brouillon en clair, ni copie de secours (audit S4).
+    if (encryptionRef.current !== "ok") {
+      if (encryptionRef.current === "unavailable") setStatus(t("Brouillon non enregistré : certificat de chiffrement indisponible"));
+      return false;
+    }
     // Rien de neuf : inutile de redéposer (sauf demande explicite d'un brouillon jamais enregistré).
     if (!isDirty() && (!force || draftId.current !== null)) {
       if (force) setStatus(t("Brouillon enregistré à {time}", { time: time() }));
@@ -309,7 +329,7 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
     if (built.draft.encrypt) clearBackup(backupKey.current);
     else writeBackup(backupKey.current, backup);
     setStatus(t("Enregistrement du brouillon…"));
-    const job = api.saveDraft(accountRef.current, built.draft, built.attachments, draftId.current);
+    const job = api.saveDraft(accountRef.current, built.draft, built.attachments, draftId.current, allowPlainRef.current);
     saving.current = job.then(
       () => {},
       () => {},
@@ -343,7 +363,8 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
     api
       .smimeSigners()
       .then((list) => alive && setSigners(list))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => alive && setSignersLoaded(true));
     return () => {
       alive = false;
     };
@@ -392,6 +413,9 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
   // Tant que l'utilisateur n'a rien fait, les changements d'état viennent de
   // l'ouverture (contenu initial, liste des comptes chargée, double rendu de
   // React en développement) : ils définissent le contenu de référence.
+  // « Signer » et « Chiffrer » en font partie : le réglage « Signer tous les
+  // messages », appliqué à l'arrivée des certificats, ne rend pas le message
+  // « modifié » (audit B7), et les enfoncer relance l'enregistrement automatique.
   useEffect(() => {
     if (!userActed.current) {
       // Brouillon retrouvé : rien n'est encore sur le serveur, tout est « modifié ».
@@ -399,7 +423,7 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
       return;
     }
     touched();
-  }, [accountId, to, cc, bcc, subject, files, plain, showCc, showBcc, touched]);
+  }, [accountId, to, cc, bcc, subject, files, plain, showCc, showBcc, sign, encrypt, signers, touched]);
 
   // Brouillon retrouvé au démarrage : enregistré tout de suite, pour qu'il ait
   // sa propre copie de secours et sa place sur le serveur (relecture complète n° 33).
@@ -421,6 +445,11 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
     () =>
       onCloseRequested(async () => {
         if (closed.current || !isDirty()) return;
+        // Impossible d'enregistrer sans chiffrer : la fenêtre reste ouverte, avec la raison.
+        if (encryptionRef.current === "unavailable") {
+          setError(unavailableRef.current);
+          return false;
+        }
         await Promise.race([saveDraft(), new Promise((r) => window.setTimeout(r, 8000))]);
       }),
     [saveDraft],
@@ -457,6 +486,8 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
     const built = collect();
     if (!built) return setError(t("Choisissez le compte d'envoi."));
     const { draft, attachments } = built;
+    if (encryption === "unavailable") return setError(unavailableText);
+    if (encryption === "waiting") return setError(t("Lecture des certificats en cours : réessayez dans un instant."));
     if (draft.to.length + draft.cc.length + draft.bcc.length === 0) {
       toInput.current?.focus();
       return setError(t("Ajoutez au moins un destinataire."));
@@ -561,13 +592,16 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
             {t("Signer")}
           </ToggleButton>
         )}
-        {canSign && (
+        {(canSign || encrypt) && (
           <ToggleButton
             appearance="subtle"
             checked={encrypt}
             icon={<LockClosed20Regular />}
             disabled={sending}
-            onClick={() => setEncrypt((on) => !on)}
+            onClick={() => {
+              setAllowPlain(encrypt);
+              setEncrypt(!encrypt);
+            }}
             title={t("Chiffrer le message : seuls les destinataires pourront le lire (il faut avoir reçu de chacun un message signé).")}
           >
             {t("Chiffrer")}
@@ -591,6 +625,11 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
       {error && (
         <MessageBar intent="error" className="compose-error">
           <MessageBarBody>{error}</MessageBarBody>
+        </MessageBar>
+      )}
+      {encryption === "unavailable" && (
+        <MessageBar intent="warning" className="compose-error">
+          <MessageBarBody>{unavailableText}</MessageBarBody>
         </MessageBar>
       )}
       {unverified.length > 0 && unencryptable.length === 0 && (

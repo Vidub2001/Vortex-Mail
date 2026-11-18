@@ -8,7 +8,7 @@
 
 use crate::backend::MailBackend;
 use crate::error::{MailError, Result};
-use crate::model::{FolderId, FolderRole, MessageId};
+use crate::model::{FolderId, FolderRole, MessageId, RawMessage};
 
 /// Avancement d'un déplacement journalisé.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -265,13 +265,28 @@ pub fn move_messages<B: MailBackend + ?Sized>(
     Ok(report)
 }
 
+/// Message brut à copier vers un autre compte. Un message vide est refusé :
+/// déposé dans la cible, il remplacerait l'original, supprimé ensuite (audit B5).
+fn fetch_for_copy<B: MailBackend + ?Sized>(backend: &mut B, id: MessageId) -> Result<RawMessage> {
+    let raw = backend.fetch_raw(id)?;
+    if raw.bytes.is_empty() {
+        let reason = crate::lang::pick(
+            "contenu du message non reçu, déplacement annulé",
+            "message content not received, move cancelled",
+            "contenido del mensaje no recibido, traslado cancelado",
+        );
+        return Err(MailError::Backend(reason.into()));
+    }
+    Ok(raw)
+}
+
 /// Copie fiable d'un message vers un autre compte, puis suppression de la source.
 fn move_across_accounts<B: MailBackend + ?Sized>(backend: &mut B, journal: &mut Journal, id: MessageId, target: &str) -> Result<MessageId> {
     let entry =
         journal.push(JournalEntry { source_id: id, target_folder: target.to_string(), message_id: None, state: JournalState::Pending });
 
     // 1. Lecture du message brut avec ses flags et sa date d'origine.
-    let raw = backend.fetch_raw(id).inspect_err(|e| {
+    let raw = fetch_for_copy(backend, id).inspect_err(|e| {
         journal.set(entry, JournalState::Failed(e.to_string()));
     })?;
     // Noté avant la copie : à la reprise, il dira si la copie a déjà eu lieu.
@@ -369,7 +384,7 @@ pub fn resume_moves<B: MailBackend + ?Sized>(backend: &mut B, journal: &mut Jour
                     Err(e) => Err(e),
                 }
             }
-            Ok(None) => match backend.fetch_raw(id) {
+            Ok(None) => match fetch_for_copy(backend, id) {
                 Err(MailError::NotFound(_)) => {
                     // Source disparue, copie introuvable : rien à reprendre.
                     journal.set(index, JournalState::Failed("message introuvable".into()));

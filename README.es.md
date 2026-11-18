@@ -52,7 +52,7 @@ Las versiones se compilan a partir de este repositorio con GitHub Actions. Cada 
 
 Los archivos de Windows aún no están firmados: Windows puede mostrar un aviso en la primera instalación.
 
-> **Estado:** versión 0.3.3, usada a diario por su autor. Se agradecen los comentarios y los avisos de errores.
+> **Estado:** versión 0.3.4, usada a diario por su autor. Se agradecen los comentarios y los avisos de errores.
 
 ## Funciones
 
@@ -275,8 +275,8 @@ fuzz/, tests/            fuzzing, corpus de no regresión, pruebas de la interfa
 </details>
 
 Próximamente:
-1. Pulido: arranque más rápido, nombres de carpetas traducidos, primeras pruebas de la
-   visualización.
+1. Continuación de la auditoría de noviembre de 2026: buzones grandes más rápidos (lista por
+   páginas, operaciones agrupadas), agenda y contactos más ligeros, refuerzos de seguridad.
 2. Cuentas profesionales y educativas de O365, si surge la necesidad (hoy: solo cuentas personales
    de Outlook.com / O365).
 

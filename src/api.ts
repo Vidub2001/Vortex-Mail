@@ -183,9 +183,11 @@ export const api = {
     draft: Draft,
     attachments: AttachmentInput[],
     replace: number | null,
+    /** Brouillon chiffré remplacé en clair : seulement si l'utilisateur a désactivé « Chiffrer » (audit S4). */
+    allowPlain = false,
   ): Promise<SavedDraft> =>
     inTauri
-      ? invoke("save_draft", { accountId, draft, attachments, replace })
+      ? invoke("save_draft", { accountId, draft, attachments, replace, allowPlain })
       : mock.saveDraft(accountId, draft, replace),
 
   discardDraft: (id: number): Promise<void> =>

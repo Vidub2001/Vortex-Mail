@@ -52,7 +52,7 @@ Releases are built from this repository by GitHub Actions. Each one comes with `
 
 Windows files are not signed yet, so Windows may show a warning on first install.
 
-> **Status:** version 0.3.3, used every day by its author. Feedback and bug reports are welcome.
+> **Status:** version 0.3.4, used every day by its author. Feedback and bug reports are welcome.
 
 ## Features
 
@@ -266,7 +266,8 @@ fuzz/, tests/            fuzzing, regression corpus, interface tests
 </details>
 
 Next:
-1. Polish: faster startup, translated folder names, first tests of the display.
+1. Follow-up of the November 2026 audit: faster large mailboxes (paged list, grouped operations),
+   lighter calendar and contacts sync, hardening.
 2. O365 work and school accounts, if the need arises (today: personal Outlook.com / O365 accounts
    only).
 

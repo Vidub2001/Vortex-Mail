@@ -265,6 +265,60 @@ fn append_once(
     s.append(mailbox, flags, date, raw)
 }
 
+/// Élément `FETCH` qui porte le message complet de `uid`. Un serveur peut
+/// glisser avant lui une réponse de drapeaux seuls (changement venu d'un autre
+/// appareil, QRESYNC) ou rendre `BODY[] NIL` : un message vide déposé ailleurs
+/// remplacerait l'original, qui serait ensuite supprimé (audit B5).
+fn complete_item(items: Vec<FetchItem>, uid: u32) -> Result<FetchItem, MailError> {
+    let mut announced = false;
+    for item in items {
+        if item.uid() != Some(uid) {
+            continue;
+        }
+        if item.body("BODY[]").is_some_and(|body| !body.is_empty()) {
+            return Ok(item);
+        }
+        announced = true;
+    }
+    if announced {
+        Err(MailError::Backend(tr!("contenu du message non reçu du serveur").into()))
+    } else {
+        Err(MailError::NotFound(tr!("message supprimé entre-temps sur le serveur").into()))
+    }
+}
+
+/// Déplacement dans un compte rejouable sans doublon (audit B1).
+/// `ImapAccount::run` refait l'opération sur une nouvelle connexion quand la
+/// précédente est coupée. Sans l'extension `MOVE`, `uid_move` fait `COPY`, puis
+/// `STORE \Deleted` et `EXPUNGE` : une coupure après la copie la ferait refaire.
+/// Au nouvel essai, les messages dont le `Message-ID` est déjà dans la cible ne
+/// sont donc que retirés de la source ; ceux sans `Message-ID` sont recopiés.
+fn move_once(s: &mut Session, attempts: &mut u32, mailbox: &str, known: Option<u32>, uids: &[u32], target: &str) -> imap_lite::Result<()> {
+    *attempts += 1;
+    ensure_selected(s, mailbox, known)?;
+    if *attempts == 1 || s.has_capability("MOVE") {
+        return s.uid_move(uids, target);
+    }
+    let message_ids = fetch_message_ids(s, uids)?;
+    ensure_selected(s, target, None)?;
+    let mut copied = Vec::new();
+    for (uid, message_id) in &message_ids {
+        if !s.uid_search("HEADER Message-ID", message_id)?.is_empty() {
+            copied.push(*uid);
+        }
+    }
+    ensure_selected(s, mailbox, known)?;
+    let remaining: Vec<u32> = uids.iter().copied().filter(|uid| !copied.contains(uid)).collect();
+    if !remaining.is_empty() {
+        s.uid_move(&remaining, target)?;
+    }
+    if !copied.is_empty() {
+        s.uid_store(&copied, "+FLAGS.SILENT (\\Deleted)")?;
+        s.uid_expunge(&copied)?;
+    }
+    Ok(())
+}
+
 /// Premier passage complet sur un dossier ? Oui s'il a été renuméroté, ou s'il
 /// n'a jamais été synchronisé (pas d'UIDVALIDITY en cache), même si quelques
 /// messages y sont déjà (brouillon enregistré, résultat de recherche ouvert) :
@@ -905,6 +959,16 @@ struct Prefetch {
     resync: bool,
 }
 
+/// Remplacement d'un brouillon chiffré par une version en clair (audit S4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlainReplacement {
+    /// Refusé : le chiffrement a disparu sans que l'utilisateur le demande
+    /// (certificat devenu indisponible, autre compte d'envoi).
+    Refused,
+    /// Demandé : l'utilisateur a désactivé « Chiffrer » dans la rédaction.
+    Confirmed,
+}
+
 /// Brouillon enregistré dans « Brouillons ».
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1297,10 +1361,7 @@ impl Router {
                 s.uid_fetch(&[uid], FULL_QUERY)
             })
             .map_err(backend)?;
-        items
-            .into_iter()
-            .find(|i| i.uid() == Some(uid))
-            .ok_or_else(|| MailError::NotFound(tr!("message supprimé entre-temps sur le serveur").into()))
+        complete_item(items, uid)
     }
 
     /// Télécharge un message absent du cache, l'affiche et le garde pour la suite.
@@ -1563,8 +1624,12 @@ impl Router {
                     return Err(backend(e));
                 }
             };
-            // Analyse des messages hors verrou : l'affichage n'attend pas.
-            let records: Vec<_> = items.iter().filter_map(|item| Some((item.uid()?, body_record(item.body("BODY[]")?)))).collect();
+            // Analyse des messages hors verrou : l'affichage n'attend pas. Un corps
+            // vide n'est pas gardé : le message sera relu au passage suivant (audit B5).
+            let records: Vec<_> = items
+                .iter()
+                .filter_map(|item| Some((item.uid()?, body_record(item.body("BODY[]").filter(|body| !body.is_empty())?))))
+                .collect();
             let mut fetched = 0;
             {
                 let mut c = self.cache();
@@ -2104,9 +2169,16 @@ impl Router {
         mut draft: Draft,
         attachments: Vec<AttachmentInput>,
         replace: Option<MessageId>,
+        plain: PlainReplacement,
     ) -> Result<SavedDraft, MailError> {
         if let Some(old) = replace {
             self.ensure_draft(old)?;
+            let encrypted = self.cache().ciphertext(old).map_err(MailError::Backend)?.is_some_and(|bytes| !bytes.is_empty());
+            if encrypted && !draft.encrypt && plain == PlainReplacement::Refused {
+                return Err(MailError::InvalidTarget(
+                    tr!("Ce brouillon est chiffré : il n'est pas remplacé par une version en clair. Désactivez « Chiffrer » pour l'enregistrer sans chiffrement.").into(),
+                ));
+            }
         }
         let config = self.config(account_id).ok_or_else(|| MailError::NotFound(tr!("compte {account}", account = account_id)))?;
         let folder = self
@@ -2600,15 +2672,18 @@ impl Router {
             // Vers « Éléments supprimés » : dossier d'origine noté pour « Restaurer ».
             let to_trash = mailbox != target_mailbox && self.folder_by_role(&account, FolderRole::Trash).as_deref() == Some(target);
             let mut origins: Vec<(u32, String)> = Vec::new();
+            let mut attempts = 0;
             self.imap_account(&account)?
                 .run(Lane::User, |s| {
                     ensure_selected(s, &mailbox, known)?;
-                    if to_trash {
+                    // Lu au premier essai seulement : au suivant, les messages
+                    // ont peut-être déjà quitté le dossier.
+                    if to_trash && origins.is_empty() {
                         // Sans effet sur la suppression si la lecture échoue : seul
                         // « Restaurer » renverra alors dans la boîte de réception.
                         origins = fetch_message_ids(s, &uids).unwrap_or_default();
                     }
-                    s.uid_move(&uids, &target_mailbox)
+                    move_once(s, &mut attempts, &mailbox, known, &uids, &target_mailbox)
                 })
                 .map_err(backend)?;
             // Les messages ont quitté ce dossier ; la cible les recevra à sa synchronisation.
@@ -2841,6 +2916,23 @@ mod tests {
             imap_lite::Client::connect(stream).expect("accueil du serveur joué")
         }
 
+        /// Serveur sans l'extension `MOVE` : déplacement par copie, puis suppression.
+        fn without_move(found: Option<u32>, fetch: String) -> (Session, Arc<Mutex<Vec<String>>>) {
+            let received = Arc::new(Mutex::new(Vec::new()));
+            let server = Scripted {
+                to_client: b"* OK [CAPABILITY IMAP4rev1 UIDPLUS] pret\r\n".iter().copied().collect(),
+                line: Vec::new(),
+                literal: 0,
+                pending: String::new(),
+                found,
+                refuse_move: false,
+                fetch,
+                received: Arc::clone(&received),
+            };
+            let stream: Box<dyn crate::transport::Stream> = Box::new(server);
+            (imap_lite::Client::connect(stream).expect("accueil du serveur joué"), received)
+        }
+
         fn command(&mut self, text: &str) {
             let mut words = text.split_whitespace();
             let tag = words.next().unwrap_or("*").to_owned();
@@ -2936,6 +3028,106 @@ mod tests {
         let mut attempts = 1;
         assert_eq!(append_once(&mut s, &mut attempts, "Sent", &[], None, SENT).unwrap(), Some(43));
         assert_eq!(received.lock().unwrap().iter().filter(|c| c.starts_with("APPEND")).count(), 1);
+    }
+
+    /// Réponse `UID FETCH` qui donne le `Message-ID` du message 5.
+    fn message_id_of_5() -> String {
+        let header = "Message-ID: <m5@example.com>\r\n\r\n";
+        format!("* 1 FETCH (UID 5 BODY[HEADER.FIELDS (MESSAGE-ID)] {{{}}}\r\n{header})\r\n", header.len())
+    }
+
+    fn count(received: &Arc<Mutex<Vec<String>>>, command: &str) -> usize {
+        received.lock().expect("journal du serveur joué").iter().filter(|c| *c == command).count()
+    }
+
+    #[test]
+    fn b1_deplacement_rejoue_sans_recopie() {
+        // Serveur sans MOVE, connexion tombée après le COPY : au nouvel essai,
+        // le message déjà dans la cible n'est que retiré de la source.
+        let (mut s, received) = Scripted::without_move(Some(9), message_id_of_5());
+        let mut attempts = 1;
+        move_once(&mut s, &mut attempts, "INBOX", None, &[5], "Archive").expect("déplacement repris");
+        assert_eq!(count(&received, "UID SEARCH"), 1, "cherché dans la cible : {:?}", received.lock().unwrap());
+        assert_eq!(count(&received, "UID COPY"), 0, "pas de seconde copie : {:?}", received.lock().unwrap());
+        assert_eq!(count(&received, "UID STORE"), 1, "source marquée supprimée");
+        assert_eq!(count(&received, "UID EXPUNGE"), 1, "source retirée");
+    }
+
+    #[test]
+    fn b1_deplacement_rejoue_message_absent_de_la_cible() {
+        // Premier essai : copie directe, sans recherche.
+        let (mut s, received) = Scripted::without_move(None, message_id_of_5());
+        let mut attempts = 0;
+        move_once(&mut s, &mut attempts, "INBOX", None, &[5], "Archive").expect("déplacement");
+        assert_eq!(count(&received, "UID SEARCH"), 0);
+        assert_eq!(count(&received, "UID COPY"), 1);
+        // Nouvel essai, copie pas arrivée dans la cible : recopiée une fois.
+        let (mut s, received) = Scripted::without_move(None, message_id_of_5());
+        let mut attempts = 1;
+        move_once(&mut s, &mut attempts, "INBOX", None, &[5], "Archive").expect("déplacement repris");
+        assert_eq!(count(&received, "UID SEARCH"), 1);
+        assert_eq!(count(&received, "UID COPY"), 1);
+    }
+
+    /// Lit le message 5 de « mailo:INBOX » sur un serveur qui répond `fetch`.
+    fn fetch_raw_with(fetch: &str) -> mail_core::Result<RawMessage> {
+        let cache = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        let tree = build_folders("mailo", vec![entry("INBOX", &[])]);
+        lock_cache(&cache).save_folders("mailo", &tree).unwrap();
+        let router = Router::new(vec![config("mailo")], Arc::clone(&cache));
+        let id = lock_cache(&cache).id_for(ImapRef { account: "mailo".into(), mailbox: "INBOX".into(), uid: 5 });
+        let fetch = fetch.to_owned();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        TEST_SERVER.with(|s| *s.borrow_mut() = Some(Box::new(move || Scripted::open(None, false, fetch.clone(), &received))));
+        let raw = router.fetch_raw(id);
+        TEST_SERVER.with(|s| *s.borrow_mut() = None);
+        raw
+    }
+
+    #[test]
+    fn b5_drapeaux_seuls_avant_le_corps() {
+        // Un autre appareil marque le message lu pendant la lecture : la réponse
+        // de drapeaux seuls arrive avant celle qui porte le corps.
+        let body = "Subject: Devis\r\n\r\nCorps\r\n";
+        let fetch = format!("* 1 FETCH (UID 5 FLAGS (\\Seen))\r\n* 1 FETCH (UID 5 FLAGS (\\Seen) BODY[] {{{}}}\r\n{body})\r\n", body.len());
+        let raw = fetch_raw_with(&fetch).expect("corps reçu");
+        assert_eq!(raw.bytes, body.as_bytes());
+    }
+
+    #[test]
+    fn b5_corps_absent_ou_vide_refuse() {
+        for fetch in ["* 1 FETCH (UID 5 FLAGS (\\Seen))\r\n", "* 1 FETCH (UID 5 BODY[] NIL)\r\n", "* 1 FETCH (UID 5 BODY[] {0}\r\n)\r\n"] {
+            let result = fetch_raw_with(fetch);
+            assert!(matches!(result, Err(MailError::Backend(_))), "réponse {fetch:?} : {result:?}");
+        }
+        let result = fetch_raw_with("");
+        assert!(matches!(result, Err(MailError::NotFound(_))), "message disparu : {result:?}");
+    }
+
+    #[test]
+    fn s4_brouillon_chiffre_jamais_remplace_en_clair() {
+        // Brouillon chiffré rouvert alors que le certificat n'est plus lisible :
+        // la version en clair n'est déposée que si l'utilisateur a désactivé « Chiffrer ».
+        let cache = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        let tree = build_folders("mailo", vec![entry("INBOX", &[]), entry("Drafts", &["\\Drafts"])]);
+        lock_cache(&cache).save_folders("mailo", &tree).unwrap();
+        let router = Router::new(vec![config("mailo")], Arc::clone(&cache));
+        let id = lock_cache(&cache).id_for(ImapRef { account: "mailo".into(), mailbox: "Drafts".into(), uid: 5 });
+        let extra = BodyExtra { signature: cache::ENCRYPTED.into(), ciphertext: b"chiffre".to_vec(), ..BodyExtra::default() };
+        lock_cache(&cache).save_body("mailo", "Drafts", 5, "", "", &extra).unwrap();
+        let draft = Draft { to: vec!["paul@example.com".into()], subject: "Devis".into(), ..Draft::default() };
+
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&received);
+        TEST_SERVER.with(|s| *s.borrow_mut() = Some(Box::new(move || Scripted::open(None, false, String::new(), &log))));
+        let refused = router.save_draft("mailo", draft.clone(), Vec::new(), Some(id), PlainReplacement::Refused);
+        let sent_before_confirmation = received.lock().unwrap().iter().filter(|c| c.starts_with("APPEND")).count();
+        let confirmed = router.save_draft("mailo", draft, Vec::new(), Some(id), PlainReplacement::Confirmed);
+        TEST_SERVER.with(|s| *s.borrow_mut() = None);
+
+        assert!(matches!(refused, Err(MailError::InvalidTarget(_))), "remplacement en clair refusé : {refused:?}");
+        assert_eq!(sent_before_confirmation, 0, "rien de déposé sur le serveur");
+        assert!(confirmed.is_ok(), "remplacement demandé par l'utilisateur : {confirmed:?}");
     }
 
     #[test]

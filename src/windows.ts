@@ -152,10 +152,11 @@ export function openDraftWindow(id: number, subject: string): Promise<void> {
  * Avant la fermeture de cette fenêtre (bouton ✕ du système) : `handler` est
  * attendu (ex. enregistrer le brouillon), puis la fenêtre se ferme.
  */
-export function onCloseRequested(handler: () => Promise<void>): () => void {
+export function onCloseRequested(handler: () => Promise<boolean | void>): () => void {
   if (!runningInTauri) return () => {};
-  const unlisten = getCurrentWebviewWindow().onCloseRequested(async () => {
-    await handler();
+  // `false` : la fenêtre reste ouverte (contenu impossible à enregistrer).
+  const unlisten = getCurrentWebviewWindow().onCloseRequested(async (event) => {
+    if ((await handler()) === false) event.preventDefault();
   });
   return () => {
     unlisten.then((f) => f());

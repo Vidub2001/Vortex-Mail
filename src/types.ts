@@ -157,6 +157,8 @@ export interface SmimeIdentity {
 export interface SigningAccount {
   accountId: string;
   signByDefault: boolean;
+  /** Certificat lu, ou fichier présent mais illisible (audit S4). */
+  state: "ready" | "unreadable";
 }
 
 export interface SendReport {

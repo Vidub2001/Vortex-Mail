@@ -52,7 +52,7 @@ Les versions sont construites à partir de ce dépôt par GitHub Actions. Chacun
 
 Les fichiers Windows ne sont pas encore signés : Windows peut afficher un avertissement à la première installation.
 
-> **État :** version 0.3.3, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
+> **État :** version 0.3.4, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
 
 ## Fonctionnalités
 
@@ -276,7 +276,8 @@ fuzz/, tests/            fuzzing, corpus de non-régression, tests de l'interfac
 </details>
 
 À venir :
-1. Finitions : démarrage plus rapide, noms de dossiers traduits, premiers tests de l'affichage.
+1. Suites de l'audit de novembre 2026 : grandes boîtes plus rapides (liste par pages, opérations
+   groupées), agenda et contacts allégés, durcissements.
 2. Comptes O365 professionnels et scolaires, si le besoin apparaît (aujourd'hui : comptes
    personnels Outlook.com / O365 uniquement).
 

@@ -278,3 +278,26 @@ export function failedInit(
     error,
   };
 }
+
+/**
+ * Chiffrement demandé, face au certificat du compte d'envoi (audit S4) :
+ * `ok` (rien à chiffrer, ou certificat prêt), `waiting` (certificats pas
+ * encore lus), `unavailable` (certificat absent ou illisible). Hors de `ok`,
+ * rien n'est envoyé ni enregistré : le message ne part jamais en clair sans
+ * que l'utilisateur ait désactivé « Chiffrer ».
+ */
+export type EncryptionCheck = "ok" | "waiting" | "unavailable";
+
+export function encryptionCheck(encrypt: boolean, canSign: boolean, signersLoaded: boolean): EncryptionCheck {
+  if (!encrypt || canSign) return "ok";
+  return signersLoaded ? "unavailable" : "waiting";
+}
+
+/**
+ * Signature et chiffrement écrits dans le message : « Signer » ne compte que
+ * si le compte a un certificat ; « Chiffrer » est gardé tel quel, pour que le
+ * backend refuse plutôt que d'envoyer en clair (audit S4).
+ */
+export function secureFlags(sign: boolean, encrypt: boolean, canSign: boolean): { sign: boolean; encrypt: boolean } {
+  return { sign: canSign && sign, encrypt };
+}
