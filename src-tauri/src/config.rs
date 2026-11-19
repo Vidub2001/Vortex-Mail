@@ -80,6 +80,12 @@ pub struct AccountConfig {
     /// (Mailo…). Vide : le même que `dav_url` ; `-` : contacts désactivés.
     #[serde(default)]
     pub card_url: String,
+    /// Contenu des messages téléchargé d'avance pour la lecture hors connexion
+    /// (lot J11b, demande du 18 novembre 2026). Désactivé, pour une très grosse
+    /// boîte ou un réseau limité : les en-têtes restent complétés, le contenu
+    /// n'est lu qu'à l'ouverture d'un message.
+    #[serde(default = "default_true")]
+    pub offline_bodies: bool,
 }
 
 fn default_true() -> bool {

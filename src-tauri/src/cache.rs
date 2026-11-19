@@ -7,7 +7,7 @@
 //! l'interface (`MessageId` ⇄ compte/dossier/UID), pour que les lectures du
 //! cache n'aient jamais besoin du verrou des connexions réseau.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
@@ -136,6 +136,33 @@ CREATE INDEX IF NOT EXISTS pim_items_by_collection ON pim_items (account, collec
 CREATE TABLE IF NOT EXISTS draft_backups (
     key  TEXT PRIMARY KEY,
     data TEXT NOT NULL
+);
+
+-- Réglages qui nomment des correspondants (règles, signatures) : dans le
+-- cache chiffré plutôt que dans le stockage de la fenêtre, en clair sur le
+-- disque (audit S8, lot J12b).
+CREATE TABLE IF NOT EXISTS prefs (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- Adresses collectées pour la complétion (lot J13) : destinataires des
+-- messages envoyés, par compte d'envoi (clé : adresse en minuscules ; retirées
+-- avec le compte). `sent` compte les messages des dossiers « Éléments
+-- envoyés » gardés dans le cache ; un envoi de Vortex Mail note l'adresse tout
+-- de suite, sa copie dans « Envoyés » la comptera.
+CREATE TABLE IF NOT EXISTS collected_addresses (
+    account TEXT    NOT NULL,
+    key     TEXT    NOT NULL,
+    email   TEXT    NOT NULL,
+    name    TEXT    NOT NULL,
+    sent    INTEGER NOT NULL,
+    last    INTEGER NOT NULL,
+    PRIMARY KEY (account, key)
+);
+-- Adresses écartées de la complétion par l'utilisateur.
+CREATE TABLE IF NOT EXISTS forgotten_addresses (
+    key TEXT PRIMARY KEY
 );
 
 -- Réponses données aux invitations (lot H1), pour les montrer à la relecture :
@@ -515,6 +542,59 @@ pub struct Cache {
     ids: HashMap<MessageId, ImapRef>,
     reverse: HashMap<ImapRef, MessageId>,
     next_id: MessageId,
+    revisions: Revisions,
+}
+
+/// Version de la liste de chaque dossier (audit P1) : augmentée à chaque
+/// écriture qui change ce que `list` rend (en-têtes, drapeaux, suppressions).
+/// L'interface la renvoie à la synchronisation suivante et ne relit la liste
+/// que si elle a changé. Départ à l'heure en millisecondes : un cache rouvert
+/// (mode portable) ne redonne jamais une version déjà vue.
+#[derive(Debug)]
+struct Revisions {
+    counter: u64,
+    /// Version de tous les dossiers (compte supprimé, renommage, arborescence).
+    all: u64,
+    folders: HashMap<(String, String), u64>,
+    /// Version des carnets, agendas et de leur contenu (complétion des
+    /// adresses gardée en mémoire tant qu'elle ne change pas, lot J10).
+    pim: u64,
+    /// Version des adresses collectées (lot J13) : corps d'un message envoyé
+    /// gardé, envoi, adresse oubliée.
+    addresses: u64,
+}
+
+impl Revisions {
+    fn starting_now() -> Self {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.as_millis());
+        let start = u64::try_from(now).unwrap_or(1);
+        Self { counter: start, all: start, folders: HashMap::new(), pim: start, addresses: start }
+    }
+
+    fn touch(&mut self, account: &str, path: &str) {
+        self.counter = self.counter.saturating_add(1);
+        self.folders.insert((account.to_string(), path.to_string()), self.counter);
+    }
+
+    fn touch_all(&mut self) {
+        self.counter = self.counter.saturating_add(1);
+        self.all = self.counter;
+    }
+
+    fn touch_pim(&mut self) {
+        self.counter = self.counter.saturating_add(1);
+        self.pim = self.counter;
+    }
+
+    fn touch_addresses(&mut self) {
+        self.counter = self.counter.saturating_add(1);
+        self.addresses = self.counter;
+    }
+
+    fn of(&self, account: &str, path: &str) -> u64 {
+        let folder = self.folders.get(&(account.to_string(), path.to_string())).copied().unwrap_or(0);
+        folder.max(self.all)
+    }
 }
 
 /// N'affiche pas le contenu de la base (messages, adresses).
@@ -544,6 +624,84 @@ fn repair_base64_previews(conn: &Connection) -> Res<()> {
         .map_err(sql)?;
     }
     Ok(())
+}
+
+/// Adresse collectée pour la complétion (lot J13).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectedAddress {
+    pub email: String,
+    pub name: String,
+    /// Messages envoyés à cette adresse trouvés dans le cache.
+    pub sent: u32,
+    /// Date du dernier envoi (secondes depuis 1970).
+    pub last: i64,
+}
+
+/// Destinataires d'un message envoyé : (nom, adresse). `first` est le premier
+/// destinataire tel que gardé (`Nom <adresse>`) : seul son nom est connu.
+fn recipients_of(first: &str, to: &str, cc: &str) -> Vec<(String, String)> {
+    let named = first.trim().strip_suffix('>').and_then(|f| f.rsplit_once('<')).map(|(name, email)| (name.trim(), email.trim()));
+    split(to)
+        .into_iter()
+        .chain(split(cc))
+        .filter(|email| email.contains('@'))
+        .map(|email| {
+            let name = named.filter(|(_, e)| e.eq_ignore_ascii_case(&email)).map_or("", |(n, _)| n);
+            (name.trim_matches('"').to_string(), email)
+        })
+        .collect()
+}
+
+/// Ajoute des destinataires aux adresses collectées. `counted` : ils viennent
+/// d'un message de « Envoyés » nouvellement gardé (compté, sauf adresse
+/// écartée) ; sinon d'un envoi de Vortex Mail (noté, et de nouveau proposé
+/// s'il avait été écarté : l'utilisateur vient d'y écrire).
+fn collect_addresses(conn: &Connection, account: &str, recipients: &[(String, String)], when: i64, counted: bool) -> Res<()> {
+    for (name, email) in recipients {
+        let key = email.to_lowercase();
+        if counted {
+            let forgotten =
+                conn.prepare_cached("SELECT 1 FROM forgotten_addresses WHERE key = ?1").map_err(sql)?.exists(params![key]).map_err(sql)?;
+            if forgotten {
+                continue;
+            }
+        } else {
+            conn.prepare_cached("DELETE FROM forgotten_addresses WHERE key = ?1").map_err(sql)?.execute(params![key]).map_err(sql)?;
+        }
+        conn.prepare_cached(
+            "INSERT INTO collected_addresses (account, key, email, name, sent, last) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(account, key) DO UPDATE SET
+               name = CASE WHEN excluded.name = '' THEN collected_addresses.name ELSE excluded.name END,
+               sent = collected_addresses.sent + excluded.sent,
+               last = MAX(collected_addresses.last, excluded.last)",
+        )
+        .map_err(sql)?
+        .execute(params![account, key, email, name, i64::from(counted), when])
+        .map_err(sql)?;
+    }
+    Ok(())
+}
+
+/// Reprise de l'historique (lot J13) : destinataires des messages de
+/// « Éléments envoyés » déjà gardés dans le cache, une fois pour toutes.
+fn collect_sent_history(conn: &Connection) -> Res<()> {
+    let sent: Vec<(String, String, String, String, i64)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT b.account, b.to_addr, b.to_list, b.cc_list, m.date FROM bodies b
+                 JOIN messages m ON m.account = b.account AND m.path = b.path AND m.uid = b.uid
+                 JOIN folders f ON f.account = b.account AND f.path = b.path
+                 WHERE f.role = 'sent'",
+            )
+            .map_err(sql)?;
+        let rows = stmt.query_map(params![], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))).map_err(sql)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(sql)?
+    };
+    let tx = conn.unchecked_transaction().map_err(sql)?;
+    for (account, first, to, cc, date) in sent {
+        collect_addresses(&tx, &account, &recipients_of(&first, &to, &cc), date, true)?;
+    }
+    tx.commit().map_err(sql)
 }
 
 impl Cache {
@@ -588,6 +746,8 @@ impl Cache {
 
     fn init(conn: Connection) -> Res<Self> {
         conn.execute_batch(SCHEMA).map_err(sql)?;
+        // Requêtes préparées gardées (audit P7) : de quoi tenir les plus fréquentes.
+        conn.set_prepared_statement_cache_capacity(64);
         // Migration : ajoute les colonnes manquantes d'une base plus ancienne.
         let existing: Vec<String> = {
             let mut stmt = conn.prepare("PRAGMA table_info(bodies)").map_err(sql)?;
@@ -642,7 +802,16 @@ impl Cache {
             repair_base64_previews(&conn)?;
             conn.execute_batch("PRAGMA user_version = 2;").map_err(sql)?;
         }
-        Ok(Self { conn, ids: HashMap::new(), reverse: HashMap::new(), next_id: ID_BASE })
+        // Version 4 : adresses collectées pour la complétion, par compte
+        // (lot J13), à partir des messages envoyés déjà gardés. La table d'une
+        // version 3 (sans compte) est refaite.
+        if version < 4 {
+            conn.execute_batch("DROP TABLE IF EXISTS collected_addresses;").map_err(sql)?;
+            conn.execute_batch(SCHEMA).map_err(sql)?;
+            collect_sent_history(&conn)?;
+            conn.execute_batch("PRAGMA user_version = 4;").map_err(sql)?;
+        }
+        Ok(Self { conn, ids: HashMap::new(), reverse: HashMap::new(), next_id: ID_BASE, revisions: Revisions::starting_now() })
     }
 
     // ------------------------------------------------------------ identifiants
@@ -682,7 +851,7 @@ impl Cache {
 
     /// Liste des comptes affichés (copie, pour lire sans verrou réseau).
     pub fn set_accounts(&mut self, accounts: &[Account]) -> Res<()> {
-        let tx = self.conn.transaction().map_err(sql)?;
+        let tx = self.conn.savepoint().map_err(sql)?;
         tx.execute("DELETE FROM accounts", params![]).map_err(sql)?;
         for (i, a) in accounts.iter().enumerate() {
             tx.execute(
@@ -707,8 +876,21 @@ impl Cache {
     /// interrompus, qui désignent des messages de l'ancien serveur et ne
     /// doivent jamais être rejoués sur le nouveau (relecture Y6).
     pub fn delete_account(&mut self, account: &str) -> Res<()> {
-        let tx = self.conn.transaction().map_err(sql)?;
-        for table in ["folders", "folder_state", "messages", "bodies", "pending_actions", "move_journal", "pending_sent", "trash_origins"] {
+        self.revisions.touch_all();
+        let tx = self.conn.savepoint().map_err(sql)?;
+        // Adresses collectées depuis ce compte (lot J13) : celles écrites
+        // depuis un autre compte restent proposées.
+        for table in [
+            "folders",
+            "folder_state",
+            "messages",
+            "bodies",
+            "pending_actions",
+            "move_journal",
+            "pending_sent",
+            "trash_origins",
+            "collected_addresses",
+        ] {
             tx.execute(&format!("DELETE FROM {table} WHERE account = ?1"), params![account]).map_err(sql)?;
         }
         // Déplacements vers ce compte depuis un autre : la cible n'existe plus.
@@ -724,7 +906,7 @@ impl Cache {
 
     /// Remplace l'arborescence d'un compte et purge les dossiers disparus.
     pub fn save_folders(&mut self, account: &str, folders: &[Folder]) -> Res<()> {
-        let tx = self.conn.transaction().map_err(sql)?;
+        let tx = self.conn.savepoint().map_err(sql)?;
         tx.execute("DELETE FROM folders WHERE account = ?1", params![account]).map_err(sql)?;
         for (i, f) in folders.iter().enumerate() {
             let parent: Option<String> = f.parent_id.as_deref().and_then(|p| p.split_once(':')).map(|(_, path)| path.to_string());
@@ -746,17 +928,25 @@ impl Cache {
             )
             .map_err(sql)?;
         }
+        let mut removed = 0;
         for table in ["folder_state", "messages", "bodies"] {
-            tx.execute(
-                &format!(
-                    "DELETE FROM {table} WHERE account = ?1
-                     AND path NOT IN (SELECT path FROM folders WHERE account = ?1)"
-                ),
-                params![account],
-            )
-            .map_err(sql)?;
+            removed += tx
+                .execute(
+                    &format!(
+                        "DELETE FROM {table} WHERE account = ?1
+                         AND path NOT IN (SELECT path FROM folders WHERE account = ?1)"
+                    ),
+                    params![account],
+                )
+                .map_err(sql)?;
         }
-        tx.commit().map_err(sql)
+        tx.commit().map_err(sql)?;
+        // Seulement si un dossier disparu avait des messages : relire
+        // l'arborescence à chaque synchronisation ne rend pas les listes « changées ».
+        if removed > 0 {
+            self.revisions.touch_all();
+        }
+        Ok(())
     }
 
     pub fn folders(&self, account: &str) -> Res<Vec<Folder>> {
@@ -865,7 +1055,8 @@ impl Cache {
 
     /// Vide le contenu d'un dossier (UIDVALIDITY changé : les UID ne valent plus rien).
     pub fn reset_folder(&mut self, account: &str, path: &str) -> Res<()> {
-        let tx = self.conn.transaction().map_err(sql)?;
+        self.revisions.touch(account, path);
+        let tx = self.conn.savepoint().map_err(sql)?;
         for table in ["messages", "bodies"] {
             tx.execute(&format!("DELETE FROM {table} WHERE account = ?1 AND path = ?2"), params![account, path]).map_err(sql)?;
         }
@@ -891,10 +1082,11 @@ impl Cache {
     /// Dossier renommé ou déplacé sur le serveur : ses messages (et ceux de ses
     /// sous-dossiers) suivent dans le cache, sans tout retélécharger.
     pub fn rename_path(&mut self, account: &str, old: &str, new: &str, delimiter: char) -> Res<()> {
+        self.revisions.touch_all();
         let prefix = format!("{old}{delimiter}");
         let tail = i64::try_from(old.chars().count()).unwrap_or(i64::MAX).saturating_add(1);
         let prefix_len = i64::try_from(prefix.chars().count()).unwrap_or(i64::MAX);
-        let tx = self.conn.transaction().map_err(sql)?;
+        let tx = self.conn.savepoint().map_err(sql)?;
         for (table, column) in [
             ("messages", "path"),
             ("bodies", "path"),
@@ -902,6 +1094,10 @@ impl Cache {
             ("folders", "path"),
             ("move_journal", "mailbox"),
             ("pending_actions", "mailbox"),
+            // Audit B6 : « Restaurer », copies d'envoi en attente, dossier parent.
+            ("trash_origins", "mailbox"),
+            ("pending_sent", "mailbox"),
+            ("folders", "parent"),
         ] {
             tx.execute(
                 &format!(
@@ -909,6 +1105,22 @@ impl Cache {
                      WHERE account = ?1 AND ({column} = ?2 OR substr({column}, 1, ?5) = ?6)"
                 ),
                 params![account, old, new, tail, prefix_len, prefix],
+            )
+            .map_err(sql)?;
+        }
+        // Dossiers cibles notés « compte:dossier » : déplacements interrompus
+        // (même venus d'un autre compte) et déplacements en attente (audit B6).
+        let folder_id = format!("{account}:{old}");
+        let folder_prefix = format!("{folder_id}{delimiter}");
+        let id_tail = i64::try_from(folder_id.chars().count()).unwrap_or(i64::MAX).saturating_add(1);
+        let id_prefix_len = i64::try_from(folder_prefix.chars().count()).unwrap_or(i64::MAX);
+        for (table, column, only) in [("move_journal", "target", ""), ("pending_actions", "arg", " AND kind = 'move'")] {
+            tx.execute(
+                &format!(
+                    "UPDATE {table} SET {column} = ?1 || substr({column}, ?2)
+                     WHERE ({column} = ?3 OR substr({column}, 1, ?4) = ?5){only}"
+                ),
+                params![format!("{account}:{new}"), id_tail, folder_id, id_prefix_len, folder_prefix],
             )
             .map_err(sql)?;
         }
@@ -945,56 +1157,69 @@ impl Cache {
     }
 
     pub fn upsert_headers(&mut self, account: &str, path: &str, headers: &[Header]) -> Res<()> {
-        let tx = self.conn.transaction().map_err(sql)?;
-        for h in headers {
-            tx.execute(
-                "INSERT OR REPLACE INTO messages
-                   (account, path, uid, from_name, from_email, subject, preview, date,
-                    seen, flagged, answered, attachments)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                params![
-                    account,
-                    path,
-                    h.uid,
-                    h.from_name,
-                    h.from_email,
-                    h.subject,
-                    h.preview,
-                    h.date,
-                    h.flags.seen,
-                    h.flags.flagged,
-                    h.flags.answered,
-                    h.has_attachments
-                ],
-            )
-            .map_err(sql)?;
+        if headers.is_empty() {
+            return Ok(());
+        }
+        self.revisions.touch(account, path);
+        let tx = self.conn.savepoint().map_err(sql)?;
+        {
+            // Requête préparée une fois pour toute la tranche (audit P7).
+            let mut insert = tx
+                .prepare_cached(
+                    "INSERT OR REPLACE INTO messages
+                       (account, path, uid, from_name, from_email, subject, preview, date,
+                        seen, flagged, answered, attachments)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                )
+                .map_err(sql)?;
+            for h in headers {
+                insert
+                    .execute(params![
+                        account,
+                        path,
+                        h.uid,
+                        h.from_name,
+                        h.from_email,
+                        h.subject,
+                        h.preview,
+                        h.date,
+                        h.flags.seen,
+                        h.flags.flagged,
+                        h.flags.answered,
+                        h.has_attachments
+                    ])
+                    .map_err(sql)?;
+            }
         }
         tx.commit().map_err(sql)
     }
 
+    /// Drapeaux relus sur le serveur : seuls les messages dont l'état a changé
+    /// sont réécrits (le plus souvent : aucun), sans relire tout le dossier
+    /// pour trois messages changés (audit P7).
     pub fn update_flags(&mut self, account: &str, path: &str, flags: &[(u32, Flags)]) -> Res<()> {
-        // Seuls les messages dont l'état a changé sont réécrits (le plus souvent : aucun).
-        let current: std::collections::HashMap<u32, (bool, bool, bool)> = {
-            let mut stmt =
-                self.conn.prepare("SELECT uid, seen, flagged, answered FROM messages WHERE account = ?1 AND path = ?2").map_err(sql)?;
-            let rows = stmt.query_map(params![account, path], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?)))).map_err(sql)?;
-            rows.collect::<Result<_, _>>().map_err(sql)?
-        };
-        let changed: Vec<&(u32, Flags)> =
-            flags.iter().filter(|(uid, f)| current.get(uid).is_some_and(|c| *c != (f.seen, f.flagged, f.answered))).collect();
-        if changed.is_empty() {
+        if flags.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.transaction().map_err(sql)?;
-        for (uid, f) in changed {
-            tx.execute(
-                "UPDATE messages SET seen = ?4, flagged = ?5, answered = ?6
-                 WHERE account = ?1 AND path = ?2 AND uid = ?3",
-                params![account, path, uid, f.seen, f.flagged, f.answered],
-            )
-            .map_err(sql)?;
+        let tx = self.conn.savepoint().map_err(sql)?;
+        let mut changed = 0;
+        {
+            let mut update = tx
+                .prepare_cached(
+                    "UPDATE messages SET seen = ?4, flagged = ?5, answered = ?6
+                     WHERE account = ?1 AND path = ?2 AND uid = ?3
+                       AND (seen IS NOT ?4 OR flagged IS NOT ?5 OR answered IS NOT ?6)",
+                )
+                .map_err(sql)?;
+            for (uid, f) in flags {
+                changed += update.execute(params![account, path, uid, f.seen, f.flagged, f.answered]).map_err(sql)?;
+            }
         }
-        tx.commit().map_err(sql)
+        tx.commit().map_err(sql)?;
+        if changed > 0 {
+            self.revisions.touch(account, path);
+        }
+        Ok(())
     }
 
     /// Pose ou retire un flag localement (`\Seen`, `\Answered` ou
@@ -1009,12 +1234,16 @@ impl Cache {
         } else {
             return Ok(());
         };
-        self.conn
+        let changed = self
+            .conn
             .execute(
-                &format!("UPDATE messages SET {column} = ?4 WHERE account = ?1 AND path = ?2 AND uid = ?3"),
+                &format!("UPDATE messages SET {column} = ?4 WHERE account = ?1 AND path = ?2 AND uid = ?3 AND {column} != ?4"),
                 params![account, path, uid, on],
             )
             .map_err(sql)?;
+        if changed > 0 {
+            self.revisions.touch(account, path);
+        }
         Ok(())
     }
 
@@ -1027,25 +1256,19 @@ impl Cache {
             .map_err(sql)
     }
 
-    /// Retire du cache les messages qui n'existent plus sur le serveur.
-    pub fn remove_missing(&mut self, account: &str, path: &str, from_uid: u32, present: &[u32]) -> Res<usize> {
-        let present: HashSet<u32> = present.iter().copied().collect();
-        let gone: Vec<u32> =
-            self.cached_uids(account, path)?.into_iter().filter(|uid| *uid >= from_uid && !present.contains(uid)).collect();
-        self.delete_messages(account, path, &gone)?;
-        Ok(gone.len())
-    }
-
     /// Plusieurs suppressions en une seule transaction.
     pub fn delete_messages(&mut self, account: &str, path: &str, uids: &[u32]) -> Res<()> {
         if uids.is_empty() {
             return Ok(());
         }
-        let tx = self.conn.transaction().map_err(sql)?;
-        for uid in uids {
-            for table in ["messages", "bodies"] {
-                tx.execute(&format!("DELETE FROM {table} WHERE account = ?1 AND path = ?2 AND uid = ?3"), params![account, path, uid])
-                    .map_err(sql)?;
+        self.revisions.touch(account, path);
+        let tx = self.conn.savepoint().map_err(sql)?;
+        {
+            let mut messages = tx.prepare_cached("DELETE FROM messages WHERE account = ?1 AND path = ?2 AND uid = ?3").map_err(sql)?;
+            let mut bodies = tx.prepare_cached("DELETE FROM bodies WHERE account = ?1 AND path = ?2 AND uid = ?3").map_err(sql)?;
+            for uid in uids {
+                messages.execute(params![account, path, uid]).map_err(sql)?;
+                bodies.execute(params![account, path, uid]).map_err(sql)?;
             }
         }
         tx.commit().map_err(sql)?;
@@ -1059,7 +1282,8 @@ impl Cache {
     }
 
     pub fn delete_message(&mut self, account: &str, path: &str, uid: u32) -> Res<()> {
-        let tx = self.conn.transaction().map_err(sql)?;
+        self.revisions.touch(account, path);
+        let tx = self.conn.savepoint().map_err(sql)?;
         for table in ["messages", "bodies"] {
             tx.execute(&format!("DELETE FROM {table} WHERE account = ?1 AND path = ?2 AND uid = ?3"), params![account, path, uid])
                 .map_err(sql)?;
@@ -1093,6 +1317,39 @@ impl Cache {
             )
             .optional()
             .map_err(sql)
+    }
+
+    /// Exécute `write` en une seule transaction (audit P7 : une synchronisation
+    /// écrivait en cinq ou six transactions) ; tout est annulé si elle échoue.
+    /// Les écritures de `Cache` y deviennent des points de sauvegarde
+    /// (`savepoint`), qui s'imbriquent.
+    ///
+    /// # Errors
+    ///
+    /// Erreur de `write`, ou de la base (début ou validation).
+    pub fn atomically<T>(&mut self, write: impl FnOnce(&mut Self) -> Res<T>) -> Res<T> {
+        // Transaction restée ouverte par une panique (verrou empoisonné, puis
+        // repris) : annulée avant d'en commencer une autre.
+        if !self.conn.is_autocommit() {
+            let _ = self.conn.execute_batch("ROLLBACK");
+        }
+        self.conn.execute_batch("BEGIN IMMEDIATE").map_err(sql)?;
+        match write(self) {
+            Ok(value) => {
+                self.conn.execute_batch("COMMIT").map_err(sql)?;
+                Ok(value)
+            }
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
+    /// Version de la liste du dossier (voir `Revisions`) : égale à celle
+    /// d'une lecture précédente si `list` rendrait la même chose.
+    pub fn revision(&self, account: &str, path: &str) -> u64 {
+        self.revisions.of(account, path)
     }
 
     /// Messages d'un dossier, du plus récent au plus ancien, avec leurs identifiants.
@@ -1407,6 +1664,28 @@ impl Cache {
         Ok(())
     }
 
+    /// Réglages enregistrés parmi `keys` (audit S8).
+    pub fn prefs(&self, keys: &[&str]) -> Res<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare_cached("SELECT value FROM prefs WHERE key = ?1").map_err(sql)?;
+        let mut out = Vec::new();
+        for key in keys {
+            if let Some(value) = stmt.query_row(params![key], |r| r.get::<_, String>(0)).optional().map_err(sql)? {
+                out.push(((*key).to_string(), value));
+            }
+        }
+        Ok(out)
+    }
+
+    /// Enregistre un réglage, ou le retire (`None`).
+    pub fn pref_set(&mut self, key: &str, value: Option<&str>) -> Res<()> {
+        match value {
+            Some(v) => self.conn.execute("INSERT OR REPLACE INTO prefs (key, value) VALUES (?1, ?2)", params![key, v]),
+            None => self.conn.execute("DELETE FROM prefs WHERE key = ?1", params![key]),
+        }
+        .map_err(sql)?;
+        Ok(())
+    }
+
     /// Retire une copie de secours ; `true` si elle existait.
     pub fn backup_remove(&mut self, key: &str) -> Res<bool> {
         Ok(self.conn.execute("DELETE FROM draft_backups WHERE key = ?1", params![key]).map_err(sql)? > 0)
@@ -1440,7 +1719,7 @@ impl Cache {
     /// (par leur `Message-ID`), et oublie les notes de plus de
     /// [`TRASH_ORIGIN_DAYS`] jours.
     pub fn trash_origins_put(&mut self, account: &str, mailbox: &str, message_ids: &[String], now: i64) -> Res<()> {
-        let tx = self.conn.transaction().map_err(sql)?;
+        let tx = self.conn.savepoint().map_err(sql)?;
         for message_id in message_ids {
             tx.execute(
                 "INSERT OR REPLACE INTO trash_origins (account, message_id, mailbox, deleted_at) VALUES (?1, ?2, ?3, ?4)",
@@ -1465,7 +1744,7 @@ impl Cache {
 
     /// Oublie le dossier d'origine de messages restaurés : (`Message-ID`, dossier).
     pub fn trash_origins_forget(&mut self, account: &str, restored: &[(String, String)]) -> Res<()> {
-        let tx = self.conn.transaction().map_err(sql)?;
+        let tx = self.conn.savepoint().map_err(sql)?;
         for (message_id, mailbox) in restored {
             tx.execute(
                 "DELETE FROM trash_origins WHERE account = ?1 AND message_id = ?2 AND mailbox = ?3",
@@ -1485,17 +1764,28 @@ impl Cache {
 
     /// Nombre de messages concernés par des actions en attente.
     pub fn pending_count(&self) -> Res<u32> {
-        let actions: usize = self.pending_actions()?.iter().map(|a| a.uids.len()).sum();
-        let sent: i64 = self.conn.query_row("SELECT COUNT(*) FROM pending_sent", params![], |r| r.get(0)).map_err(sql)?;
-        let sent = usize::try_from(sent).unwrap_or(0);
-        Ok(u32::try_from(actions.saturating_add(sent)).unwrap_or(u32::MAX))
+        // Compté par SQLite (UID séparés par des virgules), sans relire ni
+        // découper chaque action (audit P7).
+        let total: i64 = self
+            .conn
+            .prepare_cached(
+                "SELECT (SELECT COALESCE(SUM(CASE WHEN uids = '' THEN 0
+                                                  ELSE length(uids) - length(replace(uids, ',', '')) + 1 END), 0)
+                         FROM pending_actions)
+                      + (SELECT COUNT(*) FROM pending_sent)",
+            )
+            .map_err(sql)?
+            .query_row(params![], |r| r.get(0))
+            .map_err(sql)?;
+        Ok(u32::try_from(total).unwrap_or(u32::MAX))
     }
 
     // ------------------------------------------------------------ contacts et agenda
 
     /// Remplace la liste des carnets / agendas d'un compte.
     pub fn pim_set_collections(&mut self, account: &str, kind: &str, list: &[PimCollection]) -> Res<()> {
-        let tx = self.conn.transaction().map_err(sql)?;
+        self.revisions.touch_pim();
+        let tx = self.conn.savepoint().map_err(sql)?;
         tx.execute("DELETE FROM pim_collections WHERE account = ?1 AND kind = ?2", params![account, kind]).map_err(sql)?;
         for c in list {
             tx.execute(
@@ -1514,6 +1804,56 @@ impl Cache {
         tx.commit().map_err(sql)
     }
 
+    /// Version des carnets, agendas et de leur contenu : change à chaque
+    /// écriture (`pim_*`), jamais deux fois la même, même après réouverture.
+    #[must_use]
+    pub fn pim_revision(&self) -> u64 {
+        self.revisions.pim
+    }
+
+    /// Version des adresses collectées (lot J13) ; la suppression d'un compte
+    /// la change aussi.
+    pub fn addresses_revision(&self) -> u64 {
+        self.revisions.addresses.max(self.revisions.all)
+    }
+
+    /// Adresses collectées pour la complétion (lot J13), tous comptes réunis :
+    /// une adresse utilisée depuis deux comptes compte leurs deux envois.
+    pub fn collected_addresses(&self) -> Res<Vec<CollectedAddress>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT MAX(email), MAX(name), SUM(sent), MAX(last) FROM collected_addresses GROUP BY key")
+            .map_err(sql)?;
+        let rows = stmt
+            .query_map(params![], |r| Ok(CollectedAddress { email: r.get(0)?, name: r.get(1)?, sent: r.get(2)?, last: r.get(3)? }))
+            .map_err(sql)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(sql)
+    }
+
+    /// Note les destinataires d'un envoi de Vortex Mail depuis `account` :
+    /// (nom, adresse). Une adresse écartée à laquelle on écrit de nouveau revient.
+    pub fn note_sent_to(&mut self, account: &str, recipients: &[(String, String)], when: i64) -> Res<()> {
+        if recipients.is_empty() {
+            return Ok(());
+        }
+        self.atomically(|c| collect_addresses(&c.conn, account, recipients, when, false))?;
+        self.revisions.touch_addresses();
+        Ok(())
+    }
+
+    /// Écarte une adresse de la complétion (elle reste dans les messages) ;
+    /// ses prochains messages trouvés dans « Envoyés » ne la ramènent pas.
+    pub fn forget_address(&mut self, email: &str) -> Res<()> {
+        let key = email.trim().to_lowercase();
+        self.atomically(|c| {
+            c.conn.execute("INSERT OR IGNORE INTO forgotten_addresses (key) VALUES (?1)", params![key]).map_err(sql)?;
+            c.conn.execute("DELETE FROM collected_addresses WHERE key = ?1", params![key]).map_err(sql)?;
+            Ok(())
+        })?;
+        self.revisions.touch_addresses();
+        Ok(())
+    }
+
     pub fn pim_collections(&self) -> Res<Vec<PimCollection>> {
         let mut stmt =
             self.conn.prepare("SELECT account, url, kind, name, color FROM pim_collections ORDER BY account, name").map_err(sql)?;
@@ -1527,7 +1867,8 @@ impl Cache {
 
     /// Contenu d'une collection tel que relu sur le serveur (remplace l'ancien).
     pub fn pim_replace_items(&mut self, account: &str, kind: &str, collection: &str, items: &[PimItem]) -> Res<()> {
-        let tx = self.conn.transaction().map_err(sql)?;
+        self.revisions.touch_pim();
+        let tx = self.conn.savepoint().map_err(sql)?;
         tx.execute("DELETE FROM pim_items WHERE account = ?1 AND kind = ?2 AND collection = ?3", params![account, kind, collection])
             .map_err(sql)?;
         for i in items {
@@ -1548,7 +1889,8 @@ impl Cache {
     ///
     /// Erreur de la base du cache (la transaction est alors annulée).
     pub fn pim_replace_account(&mut self, account: &str, items: &[(String, String, PimItem)]) -> Res<()> {
-        let tx = self.conn.transaction().map_err(sql)?;
+        self.revisions.touch_pim();
+        let tx = self.conn.savepoint().map_err(sql)?;
         tx.execute("DELETE FROM pim_items WHERE account = ?1", params![account]).map_err(sql)?;
         for (kind, collection, i) in items {
             tx.execute(
@@ -1562,6 +1904,7 @@ impl Cache {
     }
 
     pub fn pim_put(&mut self, kind: &str, account: &str, collection: &str, item: &PimItem) -> Res<()> {
+        self.revisions.touch_pim();
         self.conn
             .execute(
                 "INSERT OR REPLACE INTO pim_items (id, kind, account, collection, url, etag, raw, data)
@@ -1587,6 +1930,7 @@ impl Cache {
     }
 
     pub fn pim_delete(&mut self, id: &str) -> Res<()> {
+        self.revisions.touch_pim();
         self.conn.execute("DELETE FROM pim_items WHERE id = ?1", params![id]).map_err(sql)?;
         Ok(())
     }
@@ -1605,24 +1949,6 @@ impl Cache {
     pub fn pim_data(&self, kind: &str) -> Res<Vec<String>> {
         let mut stmt = self.conn.prepare("SELECT data FROM pim_items WHERE kind = ?1").map_err(sql)?;
         let rows = stmt.query_map(params![kind], |r| r.get::<_, String>(0)).map_err(sql)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(sql)
-    }
-
-    /// Correspondants des messages en cache (pour compléter les adresses) : (nom, adresse, nombre).
-    pub fn correspondents(&self, query: &str, limit: usize) -> Res<Vec<(String, String, i64)>> {
-        let escaped = query.trim().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
-        let pattern = format!("%{escaped}%");
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT MAX(from_name), from_email, COUNT(*) AS n FROM messages
-                 WHERE from_email LIKE ?1 ESCAPE '\\' OR from_name LIKE ?1 ESCAPE '\\'
-                 GROUP BY lower(from_email) ORDER BY n DESC LIMIT ?2",
-            )
-            .map_err(sql)?;
-        let rows = stmt
-            .query_map(params![pattern, i64::try_from(limit).unwrap_or(i64::MAX)], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-            .map_err(sql)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(sql)
     }
 
@@ -1737,6 +2063,12 @@ impl Cache {
     }
 
     pub fn save_body(&mut self, account: &str, path: &str, uid: u32, to: &str, html: &str, extra: &BodyExtra) -> Res<()> {
+        let known = self
+            .conn
+            .prepare_cached("SELECT 1 FROM bodies WHERE account = ?1 AND path = ?2 AND uid = ?3")
+            .map_err(sql)?
+            .exists(params![account, path, uid])
+            .map_err(sql)?;
         // « - » : message sans Message-ID (distinct d'une ligne d'avant la migration).
         let message_id = if extra.message_id.is_empty() { "-" } else { extra.message_id.as_str() };
         self.conn
@@ -1762,6 +2094,25 @@ impl Cache {
                 ],
             )
             .map_err(sql)?;
+        // Message envoyé gardé pour la première fois : ses destinataires
+        // entrent dans la complétion, comptés une fois (lot J13).
+        if !known {
+            let sent: Option<i64> = self
+                .conn
+                .prepare_cached(
+                    "SELECT m.date FROM folders f JOIN messages m ON m.account = f.account AND m.path = f.path
+                     WHERE f.account = ?1 AND f.path = ?2 AND f.role = 'sent' AND m.uid = ?3",
+                )
+                .map_err(sql)?
+                .query_row(params![account, path, uid], |r| r.get(0))
+                .optional()
+                .map_err(sql)?;
+            if let Some(date) = sent {
+                let recipients = recipients_of(to, &join(&extra.to_list), &join(&extra.cc_list));
+                collect_addresses(&self.conn, account, &recipients, date, true)?;
+                self.revisions.touch_addresses();
+            }
+        }
         Ok(())
     }
 }
@@ -1781,6 +2132,128 @@ mod tests {
             flags: Flags { seen, flagged: false, answered: false },
             has_attachments: uid == 2,
         }
+    }
+
+    #[test]
+    fn s8_regles_et_signatures_dans_le_cache() {
+        let mut c = Cache::in_memory().unwrap();
+        assert_eq!(c.prefs(&["vortex.rules"]).unwrap(), Vec::<(String, String)>::new());
+        c.pref_set("vortex.rules", Some("[{\"name\":\"Factures\"}]")).unwrap();
+        c.pref_set("vortex.mail", Some("{}")).unwrap();
+        c.pref_set("vortex.mail", Some("{\"signatures\":{}}")).unwrap();
+        let got = c.prefs(&["vortex.mail", "vortex.rules", "vortex.rules.moved"]).unwrap();
+        assert_eq!(
+            got,
+            vec![
+                ("vortex.mail".to_string(), "{\"signatures\":{}}".to_string()),
+                ("vortex.rules".into(), "[{\"name\":\"Factures\"}]".into())
+            ],
+            "la dernière valeur, et seulement les clés présentes"
+        );
+        c.pref_set("vortex.rules", None).unwrap();
+        assert_eq!(c.prefs(&["vortex.rules"]).unwrap().len(), 0, "retirée");
+    }
+
+    #[test]
+    fn p7_une_transaction_pour_la_synchronisation() {
+        let mut c = Cache::in_memory().unwrap();
+        c.upsert_headers("a", "INBOX", &[header(1, 10, false), header(2, 20, false)]).unwrap();
+        // Échec en cours de route : rien de ce qui précède n'est gardé.
+        let failed: Res<()> = c.atomically(|c| {
+            c.upsert_headers("a", "INBOX", &[header(3, 30, false)])?;
+            c.delete_messages("a", "INBOX", &[1])?;
+            Err("coupure".into())
+        });
+        assert!(failed.is_err());
+        assert_eq!(c.cached_uids("a", "INBOX").unwrap(), vec![1, 2], "rien d'écrit");
+        // Réussite : tout est gardé, et une transaction suivante reste possible.
+        c.atomically(|c| {
+            c.upsert_headers("a", "INBOX", &[header(3, 30, false)])?;
+            c.update_flags("a", "INBOX", &[(2, Flags { seen: true, ..Flags::default() })])
+        })
+        .unwrap();
+        assert_eq!(c.cached_uids("a", "INBOX").unwrap(), vec![1, 2, 3]);
+        assert!(c.header("a", "INBOX", 2).unwrap().unwrap().flags.seen);
+        // Transaction laissée ouverte (panique pendant l'écriture) : annulée au passage suivant.
+        c.conn.execute_batch("BEGIN").unwrap();
+        c.atomically(|c| c.delete_messages("a", "INBOX", &[3])).unwrap();
+        assert_eq!(c.cached_uids("a", "INBOX").unwrap(), vec![1, 2]);
+    }
+
+    #[test]
+    fn p7_drapeaux_reecrits_seulement_s_ils_changent() {
+        let mut c = Cache::in_memory().unwrap();
+        c.upsert_headers("a", "INBOX", &[header(1, 10, false), header(2, 20, true)]).unwrap();
+        let before = c.revision("a", "INBOX");
+        let same = [(1, Flags::default()), (2, Flags { seen: true, ..Flags::default() }), (9, Flags::default())];
+        c.update_flags("a", "INBOX", &same).unwrap();
+        assert_eq!(c.revision("a", "INBOX"), before, "rien de changé : même version de la liste");
+        c.update_flags("a", "INBOX", &[(1, Flags { flagged: true, ..Flags::default() })]).unwrap();
+        assert!(c.revision("a", "INBOX") > before);
+        assert!(c.header("a", "INBOX", 1).unwrap().unwrap().flags.flagged);
+    }
+
+    #[test]
+    fn p7_actions_en_attente_comptees_par_sqlite() {
+        let c = Cache::in_memory().unwrap();
+        c.conn
+            .execute_batch(
+                "INSERT INTO pending_actions (kind, account, mailbox, uids, arg, value) VALUES
+                   ('flag', 'a', 'INBOX', '1,2,3', '\\Seen', 1), ('move', 'a', 'INBOX', '7', 'Archive', 0),
+                   ('flag', 'a', 'INBOX', '', '\\Seen', 1);",
+            )
+            .unwrap();
+        assert_eq!(c.pending_count().unwrap(), 4);
+    }
+
+    #[test]
+    fn p1_version_de_la_liste() {
+        let mut c = Cache::in_memory().unwrap();
+        let start = c.revision("a", "INBOX");
+        c.upsert_headers("a", "INBOX", &[header(1, 10, false)]).unwrap();
+        let after_new = c.revision("a", "INBOX");
+        assert!(after_new > start, "nouveau message : liste changée");
+        assert_eq!(c.revision("a", "Archive"), start, "autre dossier inchangé");
+
+        // Rien de neuf : la version ne bouge pas (synchronisation sans nouvelles).
+        c.upsert_headers("a", "INBOX", &[]).unwrap();
+        c.update_flags("a", "INBOX", &[(1, Flags { seen: false, flagged: false, answered: false })]).unwrap();
+        c.delete_messages("a", "INBOX", &[]).unwrap();
+        c.set_flag("a", "INBOX", 1, "\\Seen", false).unwrap();
+        assert_eq!(c.revision("a", "INBOX"), after_new, "aucune écriture réelle");
+
+        c.set_flag("a", "INBOX", 1, "\\Seen", true).unwrap();
+        let after_seen = c.revision("a", "INBOX");
+        assert!(after_seen > after_new, "lu : liste changée");
+        c.delete_messages("a", "INBOX", &[1]).unwrap();
+        assert!(c.revision("a", "INBOX") > after_seen, "supprimé : liste changée");
+        c.delete_account("b").unwrap();
+        assert!(c.revision("a", "Archive") > start, "compte supprimé : toutes les listes à relire");
+    }
+
+    #[test]
+    #[ignore = "mesure à la main : cargo test -p vortexmail j6_mesure -- --ignored --nocapture"]
+    fn j6_mesure_grande_boite() {
+        // Boîte synthétique de 30 000 messages : ce que coûtait chaque cycle
+        // avant le lot J6 (lecture et JSON de toute la liste, deux fois),
+        // et ce qu'il coûte quand elle n'a pas changé (une version comparée).
+        let mut c = Cache::in_memory().unwrap();
+        let headers: Vec<Header> = (1..=30_000).map(|uid| header(uid, i64::from(uid), uid % 3 == 0)).collect();
+        c.upsert_headers("a", "INBOX", &headers).unwrap();
+        let started = std::time::Instant::now();
+        let list = c.list("a", "INBOX").unwrap();
+        let read = started.elapsed();
+        let started = std::time::Instant::now();
+        let json = serde_json::to_vec(&list).unwrap();
+        let serialized = started.elapsed();
+        let started = std::time::Instant::now();
+        let revision = c.revision("a", "INBOX");
+        let compared = started.elapsed();
+        println!(
+            "30 000 messages : lecture {read:?}, JSON {serialized:?} ({} Ko) ; liste inchangée : version {revision} lue en {compared:?}",
+            json.len() / 1024
+        );
+        assert_eq!(list.len(), 30_000);
     }
 
     #[test]
@@ -1905,7 +2378,7 @@ mod tests {
         assert_eq!(c.is_seen("a", "INBOX", 3).unwrap(), Some(true));
 
         // UID 2 supprimé sur le serveur.
-        assert_eq!(c.remove_missing("a", "INBOX", 1, &[1, 3]).unwrap(), 1);
+        c.delete_messages("a", "INBOX", &[2]).unwrap();
         assert_eq!(c.cached_uids("a", "INBOX").unwrap(), vec![1, 3]);
 
         let extra = BodyExtra {
@@ -1969,7 +2442,7 @@ mod tests {
     }
 
     #[test]
-    fn pim_items_and_correspondents() {
+    fn pim_items() {
         let mut c = Cache::in_memory().unwrap();
         let book = PimCollection {
             account: "a".into(),
@@ -1987,10 +2460,109 @@ mod tests {
         assert_eq!(c.pim_get("a|x").unwrap().unwrap().2, item);
         c.pim_set_collections("a", "contacts", &[]).unwrap();
         assert!(c.pim_data("contacts").unwrap().is_empty(), "carnet disparu : contenu retiré");
+    }
 
-        c.upsert_headers("a", "INBOX", &[header(1, 10, true), header(2, 20, true)]).unwrap();
-        let found = c.correspondents("mar", 5).unwrap();
-        assert_eq!(found, vec![("Marie".to_string(), "marie@example.com".to_string(), 2)]);
+    /// Cache avec une boîte de réception et un dossier « Envoyés ».
+    fn with_sent_folder() -> Cache {
+        let mut c = Cache::in_memory().unwrap();
+        c.set_accounts(&[Account { id: "a".into(), name: "A".into(), email: "a@x".into(), color: "#000".into() }]).unwrap();
+        c.save_folders("a", &[folder("a", "INBOX", FolderRole::Inbox, None, 0), folder("a", "Sent", FolderRole::Sent, None, 0)]).unwrap();
+        c
+    }
+
+    fn sent_extra(to: &[&str], cc: &[&str]) -> BodyExtra {
+        BodyExtra {
+            to_list: to.iter().map(ToString::to_string).collect(),
+            cc_list: cc.iter().map(ToString::to_string).collect(),
+            ..BodyExtra::default()
+        }
+    }
+
+    #[test]
+    fn j13_destinataires_des_messages_envoyes_collectes() {
+        let mut c = with_sent_folder();
+        c.upsert_headers("a", "Sent", &[header(1, 100, true), header(2, 200, true)]).unwrap();
+        c.upsert_headers("a", "INBOX", &[header(3, 300, true)]).unwrap();
+        let extra = sent_extra(&["paul@y.fr", "lea@z.fr"], &["Marc@W.fr"]);
+        c.save_body("a", "Sent", 1, "Paul Martin <paul@y.fr>", "<p>1</p>", &extra).unwrap();
+        // Même corps gardé une seconde fois (message relu) : compté une seule fois.
+        c.save_body("a", "Sent", 1, "Paul Martin <paul@y.fr>", "<p>1</p>", &extra).unwrap();
+        c.save_body("a", "Sent", 2, "paul@y.fr", "<p>2</p>", &sent_extra(&["paul@y.fr"], &[])).unwrap();
+        // Message reçu : ses destinataires (nous) ne sont pas collectés.
+        c.save_body("a", "INBOX", 3, "a@x", "<p>3</p>", &sent_extra(&["a@x", "autre@v.fr"], &[])).unwrap();
+        let mut found = c.collected_addresses().unwrap();
+        found.sort_by(|x, y| x.email.cmp(&y.email));
+        let summary: Vec<(&str, &str, u32, i64)> = found.iter().map(|a| (a.email.as_str(), a.name.as_str(), a.sent, a.last)).collect();
+        assert_eq!(summary, [("Marc@W.fr", "", 1, 100), ("lea@z.fr", "", 1, 100), ("paul@y.fr", "Paul Martin", 2, 200)]);
+    }
+
+    #[test]
+    fn j13_envoi_note_et_adresse_ecartee() {
+        let mut c = with_sent_folder();
+        let revision = c.addresses_revision();
+        c.note_sent_to("a", &[("Léa".into(), "lea@z.fr".into())], 500).unwrap();
+        assert!(c.addresses_revision() > revision, "la complétion relit la liste");
+        assert_eq!(c.collected_addresses().unwrap().first().map(|a| (a.name.as_str(), a.sent, a.last)), Some(("Léa", 0, 500)));
+        // Écartée : retirée, et sa copie trouvée ensuite dans « Envoyés » ne la ramène pas.
+        c.forget_address(" LEA@z.fr ").unwrap();
+        assert_eq!(c.collected_addresses().unwrap(), Vec::<CollectedAddress>::new());
+        c.upsert_headers("a", "Sent", &[header(1, 600, true)]).unwrap();
+        c.save_body("a", "Sent", 1, "lea@z.fr", "<p>1</p>", &sent_extra(&["lea@z.fr"], &[])).unwrap();
+        assert_eq!(c.collected_addresses().unwrap(), Vec::<CollectedAddress>::new(), "écartée malgré la copie envoyée");
+        // L'utilisateur lui écrit de nouveau : elle revient.
+        c.note_sent_to("a", &[(String::new(), "lea@z.fr".into())], 700).unwrap();
+        assert_eq!(c.collected_addresses().unwrap().len(), 1, "un nouvel envoi la ramène");
+    }
+
+    #[test]
+    fn j13_adresses_retirees_avec_leur_compte() {
+        let mut c = with_sent_folder();
+        c.note_sent_to("a", &[("Paul".into(), "paul@y.fr".into()), (String::new(), "lea@z.fr".into())], 100).unwrap();
+        c.note_sent_to("b", &[(String::new(), "Paul@Y.fr".into())], 200).unwrap();
+        let summary = |c: &Cache| {
+            let mut found: Vec<(String, String, i64)> =
+                c.collected_addresses().unwrap().into_iter().map(|a| (a.email.to_lowercase(), a.name, a.last)).collect();
+            found.sort();
+            found
+        };
+        assert_eq!(
+            summary(&c),
+            [("lea@z.fr".to_string(), String::new(), 100), ("paul@y.fr".to_string(), "Paul".to_string(), 200)],
+            "une adresse des deux comptes n'apparaît qu'une fois"
+        );
+        let revision = c.addresses_revision();
+        c.delete_account("a").unwrap();
+        assert!(c.addresses_revision() > revision, "la complétion relit la liste");
+        assert_eq!(summary(&c), [("paul@y.fr".to_string(), String::new(), 200)], "écrite aussi depuis « b » : gardée");
+        c.delete_account("b").unwrap();
+        assert_eq!(c.collected_addresses().unwrap(), Vec::<CollectedAddress>::new(), "plus aucun compte : plus rien");
+    }
+
+    #[test]
+    fn j13_historique_repris_a_la_migration() {
+        let dir = std::env::temp_dir().join(format!("vortex-j13-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cache.db");
+        {
+            let mut c = Cache::open(&path).unwrap();
+            c.set_accounts(&[Account { id: "a".into(), name: "A".into(), email: "a@x".into(), color: "#000".into() }]).unwrap();
+            c.save_folders("a", &[folder("a", "Sent", FolderRole::Sent, None, 0)]).unwrap();
+            c.upsert_headers("a", "Sent", &[header(1, 100, true)]).unwrap();
+            c.save_body("a", "Sent", 1, "\"Dupont, Marie\" <m@x.fr>", "<p>1</p>", &sent_extra(&["m@x.fr"], &[])).unwrap();
+            // Cache de la version 3 : table sans compte, à refaire.
+            c.conn
+                .execute_batch(
+                    "DROP TABLE collected_addresses;
+                     CREATE TABLE collected_addresses (key TEXT PRIMARY KEY, email TEXT, name TEXT, sent INTEGER, last INTEGER);
+                     PRAGMA user_version = 3;",
+                )
+                .unwrap();
+        }
+        let c = Cache::open(&path).unwrap();
+        let found = c.collected_addresses().unwrap();
+        assert_eq!(found.iter().map(|a| (a.email.as_str(), a.name.as_str(), a.sent)).collect::<Vec<_>>(), [("m@x.fr", "Dupont, Marie", 1)]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -2019,6 +2591,36 @@ mod tests {
         assert_eq!(c.cached_uids("a", "Archives/Clients/Client A").unwrap(), vec![2]);
         assert_eq!(c.cached_uids("a", "ClientsVIP").unwrap(), vec![3], "nom voisin intact");
         assert_eq!(c.imap_ref(id).unwrap().mailbox, "Archives/Clients/Client A");
+    }
+
+    #[test]
+    fn b6_renommage_suivi_par_restaurer_et_les_actions_en_attente() {
+        // Un message supprimé, un déplacement interrompu ou en attente vers un
+        // dossier, une copie d'envoi en attente : tous suivent son renommage.
+        let mut c = Cache::in_memory().unwrap();
+        c.trash_origins_put("a", "Clients/Client A", &["<m1@x.fr>".into()], 0).unwrap();
+        c.sent_push(&PendingSent { id: 0, account: "a".into(), mailbox: "Clients".into(), date: 0, raw: b"x".to_vec() }).unwrap();
+        let source = ImapRef { account: "b".into(), mailbox: "INBOX".into(), uid: 4 };
+        c.journal_save(&JournalRow { key: 1, source, target: "a:Clients/Client A".into(), message_id: None, copied: false }).unwrap();
+        let action = |arg: &str| PendingAction {
+            id: 0,
+            kind: "move".into(),
+            account: "a".into(),
+            mailbox: "INBOX".into(),
+            uids: vec![4],
+            arg: arg.into(),
+            value: false,
+        };
+        c.pending_push(&action("a:Clients")).unwrap();
+        c.pending_push(&action("a:ClientsVIP")).unwrap();
+
+        c.rename_path("a", "Clients", "Archives/Clients", '/').unwrap();
+
+        assert_eq!(c.trash_origins("a", "<m1@x.fr>").unwrap(), ["Archives/Clients/Client A"]);
+        assert_eq!(c.sent_pending().unwrap()[0].mailbox, "Archives/Clients");
+        assert_eq!(c.journal_rows().unwrap()[0].target, "a:Archives/Clients/Client A");
+        let args: Vec<String> = c.pending_actions().unwrap().into_iter().map(|a| a.arg).collect();
+        assert_eq!(args, ["a:Archives/Clients", "a:ClientsVIP"], "nom voisin intact");
     }
 
     #[test]
@@ -2283,7 +2885,7 @@ mod tests {
         let c = Cache::open_encrypted(&path, &key).unwrap();
         assert_eq!(c.cached_uids("a", "INBOX").unwrap(), vec![3], "messages repris");
         let version: i64 = c.conn.query_row("PRAGMA user_version", params![], |r| r.get(0)).unwrap();
-        assert_eq!(version, 2, "version du schéma reprise");
+        assert_eq!(version, 4, "version du schéma reprise (4 depuis le lot J13)");
         drop(c);
         assert!(!is_plain(&path), "fichier remplacé par sa copie chiffrée");
         assert!(!g4_contains(&g4_bytes(&path), b"Sujet 3"), "plus rien en clair");

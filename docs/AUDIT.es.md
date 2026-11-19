@@ -45,6 +45,7 @@ make audit
 | Formato del código Rust (`rustfmt.toml`, lote 10e) | `cargo fmt --check` | ninguno: bloqueante; `cargo fmt` lo corrige |
 | Calidad del código Rust (modo `pedantic` y reglas del proyecto, lote 10) | `cargo clippy` | ninguno: bloqueante (excepciones justificadas en el código, véase más abajo) |
 | Pánicos que desenrollan la pila (red de `mimeparse.rs`, lote 10e) | `make panic-unwind` | ninguno: `panic = "abort"` rechazado en los `Cargo.toml`, `.cargo/config.toml` y `RUSTFLAGS` |
+| Dependencias fijadas del fuzzing (`fuzz/Cargo.lock` al día, lote J4) | `make fuzz-lock` | ninguno: `cargo metadata --locked` en `fuzz/`; `cargo metadata` en `fuzz/` lo completa, sin actualizar nada más |
 | Corpus de correos trampa y de escenarios de pérdida de datos | `corpus_check.py` y `cargo test --test corpus` | campo `etat` de `tests/corpus/manifest.toml` |
 
 Los informes detallados se escriben en `target/audit/`.
@@ -149,3 +150,5 @@ make sonar
 ```
 
 `make sonar` usa `sonar-scanner` si está instalado. Si no, pasa por la imagen Docker `sonarsource/sonar-scanner-cli`. El proyecto se llama `vortexmail`.
+
+Desde el lote J8c, `make sonar` también envía la cobertura de las pruebas de la interfaz (`make front-coverage`, lcov), y Jenkins lo lanza en `main` tras cada fusión, sin bloquear nunca la compilación (docs/CI.md, § 7). Las fuentes incluyen también `crates/smime`, y las pruebas `tests/frontend` y `tests/ui`.

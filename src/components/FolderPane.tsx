@@ -21,11 +21,12 @@ import {
   Rename20Regular,
   Warning16Regular,
 } from "@fluentui/react-icons";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Account, Folder } from "../types";
 import { UNIFIED_ROLES, members, unifiedFolder, unifiedId } from "../unified";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { FolderIcon } from "./FolderIcon";
+import { folderTree } from "../folder-tree";
 import { t } from "../i18n";
 
 interface Props {
@@ -108,17 +109,19 @@ export function FolderPane(p: Props) {
   const unifiedActive = p.unifiedView && p.accounts.length > 1;
 
   /** Abonné, ou parent d'un dossier abonné (comme Thunderbird). */
-  const shown = (f: Folder): boolean =>
-    !unifiedActive || f.subscribed || p.folders.some((x) => x.subscribed && isUnder(x, f));
+  const tree = useMemo(() => folderTree(p.folders), [p.folders]);
+  const folderById = tree.byId;
 
-  const hasChildren = (f: Folder) => p.folders.some((x) => x.parentId === f.id && shown(x));
+  const shown = (f: Folder): boolean => !unifiedActive || f.subscribed || tree.holdsSubscribed.has(f.id);
+
+  const hasChildren = (f: Folder) => (tree.children.get(f.id) ?? []).some(shown);
 
   // Un dossier est visible si aucun de ses ancêtres n'est replié.
   const isVisible = (f: Folder): boolean => {
     let parent = f.parentId;
     while (parent) {
       if (collapsed.has(parent)) return false;
-      parent = p.folders.find((x) => x.id === parent)?.parentId ?? null;
+      parent = folderById.get(parent)?.parentId ?? null;
     }
     return true;
   };
@@ -180,7 +183,6 @@ export function FolderPane(p: Props) {
     e.stopPropagation();
     if (items.length > 0) setMenu({ x: e.clientX, y: e.clientY, items });
   };
-  const folderById = new Map(p.folders.map((f) => [f.id, f]));
 
   /** `f` est-il dans la sous-arborescence de `root` (sans être `root`) ? */
   const isUnder = (f: Folder, root: Folder): boolean => {

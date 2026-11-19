@@ -113,7 +113,7 @@ const normalized = (rule: string) =>
     .toUpperCase()
     .split(";")
     .filter((p) => p && !p.startsWith("UNTIL=") && p !== "INTERVAL=1")
-    .sort()
+    .sort((a, b) => a.localeCompare(b, "en"))
     .join(";");
 
 /**

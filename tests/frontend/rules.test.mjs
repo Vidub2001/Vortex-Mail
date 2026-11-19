@@ -10,13 +10,20 @@ const { api } = await import("../../src/api.ts");
 const { doneKey, messageKey, newRule, runInboxRules, saveRules } = await import("../../src/rules.ts");
 
 const DONE_KEY = "vortex.rules.done.v3";
+const MARKS_KEY = "vortex.rules.marks.v1";
 const PERSO = "perso:INBOX";
 const PRO = "pro:INBOX";
 
 const folders = async () => (await api.listFolders()).folders;
 const inbox = (id) => api.listMessages(id);
 const setDone = (done) => localStorage.setItem(DONE_KEY, JSON.stringify(done));
-const done = () => JSON.parse(localStorage.getItem(DONE_KEY) ?? "{}");
+// Repère par boîte (audit P8) : la liste « examinés » donnée par `setDone`
+// est l'ancien format, converti au passage suivant.
+const marks = () => JSON.parse(localStorage.getItem(MARKS_KEY) ?? "{}");
+const examined = (folder, m) => {
+  const mark = marks()[folder];
+  return !!mark && m.uid <= mark.maxUid && !mark.retry.includes(m.uid);
+};
 
 function moveRule(account, fromEmail, target) {
   const r = newRule(account);
@@ -58,7 +65,8 @@ test("B1 : deux règles qui se renvoient un message ne le font pas circuler", as
     assert.equal(report?.moved ?? 0, 0, `tour ${tour} : plus aucun déplacement`);
     assert.ok((await inbox(PRO)).some((m) => messageKey(m) === key), `tour ${tour} : le message reste dans pro`);
   }
-  assert.ok(done()[PRO].includes(key), "noté comme examiné dans la boîte pro");
+  const arrived = (await inbox(PRO)).find((m) => messageKey(m) === key);
+  assert.ok(arrived && examined(PRO, arrived), "noté comme examiné dans la boîte pro");
 });
 
 test("B4 : seuls les nouveaux non-lus restés dans la boîte sont annoncés", async () => {
@@ -76,9 +84,9 @@ test("B4 : seuls les nouveaux non-lus restés dans la boîte sont annoncés", as
   setDone({ [PERSO]: (await inbox(PERSO)).map(doneKey), [PRO]: others });
 
   const report = await runInboxRules(await folders());
-  const announced = report?.arrivals.map(doneKey) ?? [];
-  assert.ok(!announced.includes(messageKey(spam)), "le message mis à la corbeille n'est pas annoncé");
-  assert.ok(announced.includes(messageKey(kept)), "l'autre nouveau message l'est");
+  const announced = report?.arrivals.map((m) => m.id) ?? [];
+  assert.ok(!announced.includes(spam.id), "le message mis à la corbeille n'est pas annoncé");
+  assert.ok(announced.includes(kept.id), "l'autre nouveau message l'est");
   assert.ok(report?.arrivals.every((m) => !m.flags.seen), "rien de déjà lu");
 });
 
@@ -108,7 +116,8 @@ test("F3 : sur une grande boîte, un ancien message redevenu non lu n'est pas re
   }
   const after = (await inbox(PRO)).find((m) => m.id === old.id);
   assert.equal(after?.flags.seen, false, "le message remis en non lu le reste");
-  assert.ok(done()[PRO].includes(doneKey(old)), "toujours noté comme examiné");
+  assert.ok(examined(PRO, old), "toujours noté comme examiné");
+  assert.equal(localStorage.getItem(DONE_KEY), null, "ancienne liste « examinés » convertie puis retirée");
   await api.setSeen([old.id], true);
 });
 
@@ -131,9 +140,32 @@ test("F9 : règle « destinataires ne contiennent pas » sur un message illisibl
     api.getMessage = getMessage;
   }
   assert.ok((await inbox(PERSO)).some((m) => m.id === fresh.id), "le message reste dans la boîte");
-  assert.ok(!done()[PERSO].includes(doneKey(fresh)), "il sera examiné au prochain passage");
+  assert.ok(marks()[PERSO].retry.includes(fresh.uid), "il sera examiné au prochain passage");
   // Prochain passage, message lisible : la règle s'applique (il n'est pas adressé à moi@exemple.fr).
   const report = await runInboxRules(await folders());
   assert.equal(report?.matched, 1, "retenté et appliqué");
   saveRules([]);
+});
+
+test("P8 : repère par UID, sans liste qui grossit avec la boîte", async () => {
+  localStorage.removeItem("vortex.rules.moved");
+  localStorage.removeItem(DONE_KEY);
+  localStorage.removeItem(MARKS_KEY);
+  saveRules([]);
+  // Premier passage : boîtes seulement notées, un repère de quelques octets chacune.
+  const report = await runInboxRules(await folders());
+  assert.equal(report?.matched ?? 0, 0);
+  const list = await inbox(PRO);
+  const top = Math.max(...list.map((m) => m.uid));
+  assert.deepEqual(marks()[PRO], { validity: 1, maxUid: top, retry: [] });
+  assert.ok(localStorage.getItem(MARKS_KEY).length < 200, "taille indépendante du nombre de messages");
+});
+
+test("P8 : conversion de l'ancienne liste « examinés »", async () => {
+  const { markFromLegacy } = await import("../../src/rules.ts");
+  const m = (uid) => ({ id: uid, uid, folderId: "a:INBOX", accountId: "a", fromName: "", fromEmail: "x@y.fr", subject: `n° ${uid}`, preview: "", date: uid, flags: { seen: false, flagged: false, answered: false }, hasAttachments: false });
+  const messages = [m(1), m(2), m(3), m(4)];
+  // 1, 2 et 4 examinés ; 3 laissé à retenter (lecture impossible au dernier passage).
+  const mark = markFromLegacy(messages, [m(1), m(2), m(4)].map(doneKey), 9);
+  assert.deepEqual(mark, { validity: 9, maxUid: 4, retry: [3] });
 });

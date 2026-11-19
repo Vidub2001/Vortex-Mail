@@ -218,6 +218,8 @@ export interface RecipientCheck {
 export interface SearchReport {
   results: MessageSummary[];
   errors: AccountError[];
+  /** Dossiers non parcourus : recherche arrêtée au bout de 30 s (lot J14). */
+  unfinished: number;
 }
 
 export interface FlushReport {
@@ -249,6 +251,13 @@ export interface ServerConfig {
   pinnedCert?: string;
 }
 
+/** Nouvelle version publiée sur GitHub (lot K1). */
+export interface NewVersion {
+  version: string;
+  /** Page de la version sur GitHub (construite par le backend). */
+  url: string;
+}
+
 export interface AccountConfig {
   id: string;
   name: string;
@@ -265,6 +274,8 @@ export interface AccountConfig {
   davUrl?: string;
   /** Contacts (CardDAV) s'ils sont sur un autre serveur que l'agenda ; vide = même serveur. */
   cardUrl?: string;
+  /** Contenu des messages téléchargé d'avance pour la lecture hors connexion (absent : oui). */
+  offlineBodies?: boolean;
 }
 
 // ---------------------------------------------------------------- contacts et agenda

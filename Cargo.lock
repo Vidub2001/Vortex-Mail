@@ -5723,11 +5723,12 @@ dependencies = [
  "sha2 0.11.1",
  "spki",
  "x509-cert",
+ "zeroize",
 ]
 
 [[package]]
 name = "vortexmail"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "ammonia",
  "getrandom 0.2.17",

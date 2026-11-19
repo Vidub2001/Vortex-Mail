@@ -52,7 +52,7 @@ Releases are built from this repository by GitHub Actions. Each one comes with `
 
 Windows files are not signed yet, so Windows may show a warning on first install.
 
-> **Status:** version 0.3.4, used every day by its author. Feedback and bug reports are welcome.
+> **Status:** version 0.3.5, used every day by its author. Feedback and bug reports are welcome.
 
 ## Features
 
@@ -93,7 +93,9 @@ Windows files are not signed yet, so Windows may show a warning on first install
   Settings › General); mail, rules and reminders keep running. New-mail notifications come after
   the rules (none for a message they delete), two rules that send a message back and forth no
   longer bounce it, and reminders missed while the app was closed are summarised at startup.
-- Offline: full local cache; actions are queued and replayed when the network is back.
+- Offline: full local cache; actions are queued and replayed when the network is back. Downloading
+  message contents can be turned on or off for each account.
+- New versions are announced, at most once a day (can be turned off in Settings › General).
 
 **Calendar and contacts**
 - Gmail (Google OAuth2, CalDAV/CardDAV), Outlook.com, Mailo/Netcourrier and any CalDAV/CardDAV
@@ -262,14 +264,17 @@ fuzz/, tests/            fuzzing, regression corpus, interface tests
 - ~~Fixes from the November 2026 code review (security, data safety, calendar time zones),
   fuzzing, threat model, Rust coding rules.~~
 - ~~Background operation: notification area, rules and notifications, missed reminders.~~
+- ~~Follow-up of the November 2026 audit: faster large mailboxes, grouped background operations,
+  lighter calendar and contacts sync, server search with a time limit, address suggestions from the
+  people you wrote to, hardening.~~
 
 </details>
 
 Next:
-1. Follow-up of the November 2026 audit: faster large mailboxes (paged list, grouped operations),
-   lighter calendar and contacts sync, hardening.
-2. O365 work and school accounts, if the need arises (today: personal Outlook.com / O365 accounts
+1. O365 work and school accounts, if the need arises (today: personal Outlook.com / O365 accounts
    only).
+2. Automatic updates, if the need arises (today: new versions are announced, with a link to the
+   release page).
 
 ## Known limitations
 

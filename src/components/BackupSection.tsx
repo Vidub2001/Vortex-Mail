@@ -6,6 +6,7 @@ import { ArrowDownload20Regular, ArrowUpload20Regular } from "@fluentui/react-ic
 import { useEffect, useRef, useState } from "react";
 import { api, type BackupInfo } from "../api";
 import { t } from "../i18n";
+import { isSecureKey, secureStore } from "../secure-store";
 
 /**
  * Clés propres à cette installation, jamais sauvegardées ni reprises :
@@ -20,6 +21,7 @@ export function localOnly(key: string): boolean {
     key === "vortex.drafts.local" ||
     (key.startsWith("vortex.compose.") && key !== "vortex.compose.format") ||
     key.startsWith("vortex.rules.done") ||
+    key.startsWith("vortex.rules.marks") ||
     key === "vortex.rules.moved" ||
     key.startsWith("vortex.reminders.")
   );
@@ -34,6 +36,11 @@ function collectSettings(): string {
       if (!key || !/^vortex\./.test(key) || localOnly(key)) continue;
       const value = localStorage.getItem(key);
       if (value !== null) out[key] = value;
+    }
+    // Règles et signatures : dans le cache chiffré (audit S8).
+    for (const key of secureStore.keys()) {
+      const value = secureStore.getItem(key);
+      if (value !== null && !localOnly(key)) out[key] = value;
     }
   } catch {
     /* stockage indisponible : les réglages par défaut seront repris */
@@ -52,9 +59,12 @@ function restoreSettings(json: string) {
       if (key && key.startsWith("vortex.") && !localOnly(key)) current.push(key);
     }
     for (const key of current) localStorage.removeItem(key);
+    for (const key of secureStore.keys()) if (!localOnly(key)) secureStore.removeItem(key);
     // Seulement les réglages de l'application (le backend filtre aussi).
     for (const [key, value] of Object.entries(settings)) {
-      if (key.startsWith("vortex.") && !localOnly(key) && typeof value === "string") localStorage.setItem(key, value);
+      if (!key.startsWith("vortex.") || localOnly(key) || typeof value !== "string") continue;
+      if (isSecureKey(key)) secureStore.setItem(key, value);
+      else localStorage.setItem(key, value);
     }
   } catch {
     /* sans réglages : ceux par défaut */
@@ -107,7 +117,12 @@ export function BackupSection({ accountCount }: { accountCount: number }) {
       setImportError(t("Fichier trop volumineux pour une sauvegarde de Vortex Mail."));
       return;
     }
-    setFile({ name: f.name, content: await f.text() });
+    try {
+      setFile({ name: f.name, content: await f.text() });
+    } catch (e) {
+      // Fichier illisible (retiré, droits) : dit, plutôt qu'un échec silencieux (lot L2).
+      setImportError(String(e));
+    }
   };
 
   const check = async () => {
@@ -216,7 +231,7 @@ export function BackupSection({ accountCount }: { accountCount: number }) {
             accept=".vxbackup"
             hidden
             onChange={(e) => {
-              pickFile(e.target.files?.[0]);
+              void pickFile(e.target.files?.[0]);
               e.target.value = "";
             }}
           />

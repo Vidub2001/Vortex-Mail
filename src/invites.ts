@@ -4,6 +4,7 @@
 import { api } from "./api";
 import { instant } from "./calendar";
 import { t } from "./i18n";
+import { trimEndOf } from "./text";
 import type { Account, Attendee, CalEvent, InvitationAnswer } from "./types";
 
 const lower = (s: string) => s.trim().toLowerCase();
@@ -67,7 +68,7 @@ export function meetingLink(e: CalEvent): { url: string; service: string } | nul
   for (const text of [e.location, e.description]) {
     for (const [pattern, service] of MEETINGS) {
       const found = pattern.exec(text ?? "");
-      if (found) return { url: found[0].replace(/[).,;]+$/, ""), service };
+      if (found) return { url: trimEndOf(found[0], ").,;"), service };
     }
   }
   return null;

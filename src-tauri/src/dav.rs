@@ -5,7 +5,7 @@
 //! puis `current-user-principal` → `addressbook-home-set` / `calendar-home-set`
 //! → collections de ce dossier.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::sync::Mutex;
 
@@ -170,7 +170,13 @@ fn status_error(status: u16, what: &str) -> String {
 
 /// Raison donnée par le serveur dans le corps d'une réponse d'erreur
 /// (JSON de Google `"message": "…"`, ou texte / XML), courte et sur une ligne.
+/// Octets d'une réponse d'erreur lus pour en tirer la raison.
+const MAX_REASON_SOURCE: usize = 64 * 1024;
+
 pub(crate) fn server_reason(body: &[u8]) -> String {
+    // Le début suffit pour la raison ; une page d'erreur de plusieurs Mo
+    // rendait le retrait des blocs `<style>` quadratique (audit S7).
+    let body = &body[..body.len().min(MAX_REASON_SOURCE)];
     let text = String::from_utf8_lossy(body);
     let reason = if let Some(i) = text.find("\"message\"") {
         let rest = &text[i + 9..];
@@ -193,14 +199,7 @@ pub(crate) fn server_reason(body: &[u8]) -> String {
     } else {
         // Page d'erreur HTML : sans le contenu des blocs `<style>` et
         // `<script>` (la page 502 de Google affichait toute sa feuille de style).
-        let mut text = text.into_owned();
-        for block in ["style", "script"] {
-            while let Some(start) = text.to_ascii_lowercase().find(&format!("<{block}")) {
-                let close = format!("</{block}>");
-                let end = text.to_ascii_lowercase()[start..].find(&close).map_or(text.len(), |e| start + e + close.len());
-                text.replace_range(start..end, " ");
-            }
-        }
+        let text = without_blocks(&text);
         let mut out = String::new();
         let mut in_tag = false;
         for c in text.chars() {
@@ -222,6 +221,31 @@ pub(crate) fn server_reason(body: &[u8]) -> String {
         short.push('…');
     }
     short
+}
+
+/// Texte sans les blocs `<style>` et `<script>`, en un seul passage : retirer
+/// les blocs un par un en relisant tout le texte à chaque fois était encore
+/// quadratique sur les 64 Kio gardés (test S7 à 2,5 s sur une machine chargée).
+fn without_blocks(text: &str) -> String {
+    // Minuscules ASCII : mêmes positions d'octets que le texte d'origine.
+    let lower = text.to_ascii_lowercase();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while let Some(found) = lower[i..].find('<') {
+        let start = i + found;
+        if let Some(block) = ["style", "script"].into_iter().find(|block| lower[start + 1..].starts_with(*block)) {
+            out.push_str(&text[i..start]);
+            out.push(' ');
+            let close = format!("</{block}>");
+            // Bloc sans fin : retiré jusqu'au bout.
+            i = lower[start..].find(&close).map_or(text.len(), |end| start + end + close.len());
+        } else {
+            out.push_str(&text[i..=start]);
+            i = start + 1;
+        }
+    }
+    out.push_str(&text[i..]);
+    out
 }
 
 fn http_error(response: &http::Response, what: &str) -> String {
@@ -473,18 +497,49 @@ fn etag_of(response: &Element) -> String {
     prop(response, "getetag").map_or_default(Element::text_content)
 }
 
-/// Tous les contacts d'un carnet.
-pub(crate) fn fetch_contacts(collection: &str, auth: &Auth) -> Result<Vec<Item>, String> {
-    // Liste des fiches (adresse + version), puis contenu par lots.
-    let body =
-        r#"<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:getetag/><d:getcontenttype/></d:prop></d:propfind>"#;
-    let (root, base) = multistatus("PROPFIND", collection, auth, "1", body)?;
-    let urls: Vec<String> = root
-        .dav_descendants("response")
+/// Résultat d'une relecture : éléments nouveaux ou changés, avec leur
+/// contenu, et adresses des éléments inchangés, à garder tels quels (audit P6).
+#[derive(Debug, Default)]
+pub(crate) struct Fetched {
+    pub changed: Vec<Item>,
+    pub unchanged: Vec<String>,
+}
+
+/// Adresse et version (`ETag`) de chaque élément d'une réponse, sans la
+/// collection elle-même ni ses sous-dossiers.
+fn listing(root: &Element, base: &str) -> Vec<(String, String)> {
+    root.dav_descendants("response")
         .into_iter()
-        .filter_map(|r| href_of(&base, r))
-        .filter(|u| u.trim_end_matches('/') != base.trim_end_matches('/') && !u.ends_with('/'))
-        .collect();
+        .filter_map(|r| {
+            let url = href_of(base, r)?;
+            (url.trim_end_matches('/') != base.trim_end_matches('/') && !url.ends_with('/')).then(|| (url, etag_of(r)))
+        })
+        .collect()
+}
+
+/// Sépare les éléments inchangés (même `ETag` que celui du cache) de ceux à
+/// relire : nouveaux, changés, ou sans `ETag` (rien ne prouve qu'ils n'ont pas
+/// changé). `known` : adresse → `ETag` des éléments en cache.
+fn split_by_etag(listing: Vec<(String, String)>, known: &HashMap<String, String>) -> (Vec<String>, Vec<String>) {
+    let mut wanted = Vec::new();
+    let mut unchanged = Vec::new();
+    for (url, etag) in listing {
+        if !etag.is_empty() && known.get(&url) == Some(&etag) {
+            unchanged.push(url);
+        } else {
+            wanted.push(url);
+        }
+    }
+    (wanted, unchanged)
+}
+
+/// Contenu des éléments `urls`, par lots (`addressbook-multiget` ou
+/// `calendar-multiget`).
+fn multiget(collection: &str, auth: &Auth, kind: Kind, urls: &[String]) -> Result<Vec<Item>, String> {
+    let (report, data) = match kind {
+        Kind::Contacts => ("addressbook-multiget", "address-data"),
+        Kind::Calendar => ("calendar-multiget", "calendar-data"),
+    };
     let mut items = Vec::new();
     for batch in urls.chunks(MULTIGET_BATCH) {
         let hrefs = batch.iter().fold(String::new(), |mut s, u| {
@@ -492,21 +547,41 @@ pub(crate) fn fetch_contacts(collection: &str, auth: &Auth) -> Result<Vec<Item>,
             s
         });
         let body = format!(
-            r#"<?xml version="1.0" encoding="utf-8"?><c:addressbook-multiget xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav"><d:prop><d:getetag/><c:address-data/></d:prop>{hrefs}</c:addressbook-multiget>"#
+            r#"<?xml version="1.0" encoding="utf-8"?><c:{report} xmlns:d="DAV:" xmlns:c="{ns}"><d:prop><d:getetag/><c:{data}/></d:prop>{hrefs}</c:{report}>"#,
+            ns = kind.namespace()
         );
         let (root, base) = multistatus("REPORT", collection, auth, "1", &body)?;
-        items.extend(items_from(&root, &base, "address-data"));
+        items.extend(items_from(&root, &base, data));
     }
     Ok(items)
 }
 
-/// Rendez-vous d'un agenda entre deux instants (`AAAAMMJJTHHMMSSZ`), répétitions comprises.
-pub(crate) fn fetch_events(collection: &str, auth: &Auth, from: &str, to: &str) -> Result<Vec<Item>, String> {
+/// Fiches d'un carnet : liste des versions, puis contenu des seules fiches
+/// nouvelles ou changées depuis `known` (adresse → `ETag`, audit P6).
+pub(crate) fn fetch_contacts(collection: &str, auth: &Auth, known: &HashMap<String, String>) -> Result<Fetched, String> {
+    let body =
+        r#"<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:"><d:prop><d:getetag/><d:getcontenttype/></d:prop></d:propfind>"#;
+    let (root, base) = multistatus("PROPFIND", collection, auth, "1", body)?;
+    let (wanted, unchanged) = split_by_etag(listing(&root, &base), known);
+    Ok(Fetched { changed: multiget(collection, auth, Kind::Contacts, &wanted)?, unchanged })
+}
+
+/// Rendez-vous d'un agenda entre deux instants (`AAAAMMJJTHHMMSSZ`),
+/// répétitions comprises : versions seules d'abord (`calendar-query`), puis
+/// contenu des seuls rendez-vous nouveaux ou changés (audit P6).
+pub(crate) fn fetch_events(
+    collection: &str,
+    auth: &Auth,
+    from: &str,
+    to: &str,
+    known: &HashMap<String, String>,
+) -> Result<Fetched, String> {
     let body = format!(
-        r#"<?xml version="1.0" encoding="utf-8"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="{from}" end="{to}"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>"#
+        r#"<?xml version="1.0" encoding="utf-8"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="{from}" end="{to}"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>"#
     );
     let (root, base) = multistatus("REPORT", collection, auth, "1", &body)?;
-    Ok(items_from(&root, &base, "calendar-data"))
+    let (wanted, unchanged) = split_by_etag(listing(&root, &base), known);
+    Ok(Fetched { changed: multiget(collection, auth, Kind::Calendar, &wanted)?, unchanged })
 }
 
 pub(crate) fn items_from(root: &Element, base: &str, data_name: &str) -> Vec<Item> {
@@ -643,6 +718,25 @@ mod tests {
     }
 
     #[test]
+    fn s7_page_d_erreur_enorme_lue_vite() {
+        let page = "<style>x{}</style>".repeat(500_000);
+        let started = std::time::Instant::now();
+        let _ = server_reason(page.as_bytes());
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+        // Le même travail sans limite de taille reste linéaire : 9 Mo en un passage.
+        let started = std::time::Instant::now();
+        assert_eq!(without_blocks(&page).trim(), "");
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+    }
+
+    #[test]
+    fn blocs_style_et_script_retires() {
+        assert_eq!(without_blocks("a<STYLE>x</style>b<script src=x>y</SCRIPT>c<b>d</b>"), "a b c<b>d</b>");
+        assert_eq!(without_blocks("a<style>sans fin"), "a ");
+        assert_eq!(without_blocks("é<p>ü</p>"), "é<p>ü</p>");
+    }
+
+    #[test]
     fn server_reasons() {
         let google = br#"{"error": {"code": 403, "message": "CalDAV API has not been used in project 12 before or it is disabled.", "status": "PERMISSION_DENIED"}}"#;
         assert_eq!(server_reason(google), "CalDAV API has not been used in project 12 before or it is disabled.");
@@ -693,6 +787,29 @@ mod tests {
         let root = xml::parse(doc);
         let kept: Vec<bool> = root.dav_descendants("response").into_iter().map(holds_events).collect();
         assert_eq!(kept, vec![false, true, true]);
+    }
+
+    #[test]
+    fn p6_seuls_les_elements_changes_sont_relus() {
+        let doc = r#"<d:multistatus xmlns:d="DAV:">
+          <d:response><d:href>/carnet/</d:href><d:propstat><d:prop><d:getetag>"c"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+          <d:response><d:href>/carnet/meme.vcf</d:href><d:propstat><d:prop><d:getetag>"1"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+          <d:response><d:href>/carnet/change.vcf</d:href><d:propstat><d:prop><d:getetag>"3"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+          <d:response><d:href>/carnet/nouveau.vcf</d:href><d:propstat><d:prop><d:getetag>"1"</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+          <d:response><d:href>/carnet/sans-version.vcf</d:href><d:propstat><d:prop/><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+          <d:response><d:href>/carnet/sous-dossier/</d:href><d:propstat><d:prop/><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+          </d:multistatus>"#;
+        let base = "https://dav.exemple.fr/carnet/";
+        let root = xml::parse(doc);
+        let at = |name: &str| format!("{base}{name}");
+        let known: HashMap<String, String> =
+            [("meme.vcf", "\"1\""), ("change.vcf", "\"2\""), ("sans-version.vcf", ""), ("supprime.vcf", "\"1\"")]
+                .into_iter()
+                .map(|(name, etag)| (at(name), etag.to_owned()))
+                .collect();
+        let (wanted, unchanged) = split_by_etag(listing(&root, base), &known);
+        assert_eq!(unchanged, vec![at("meme.vcf")]);
+        assert_eq!(wanted, vec![at("change.vcf"), at("nouveau.vcf"), at("sans-version.vcf")]);
     }
 
     #[test]

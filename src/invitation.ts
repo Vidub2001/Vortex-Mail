@@ -31,6 +31,18 @@ export interface InvitationPlan {
   event: CalEvent;
   /** Rendez-vous de même UID déjà dans l'agenda (la série de préférence). */
   existing?: CalEvent;
+  /**
+   * Mise à jour ou annulation d'un autre organisateur que celui du rendez-vous
+   * en place (audit S6) : seul l'organisateur peut en envoyer (RFC 5546), mais
+   * quiconque connaît l'UID (un invité, le destinataire d'un transfert) peut
+   * en fabriquer une. `theirs` : celui de l'invitation, `ours` : celui de l'agenda.
+   */
+  otherOrganizer?: { theirs: string; ours: string };
+}
+
+/** Adresse de l'organisateur, sans `mailto:`, en minuscules ; vide si inconnue. */
+function organizerOf(e: CalEvent): string {
+  return (e.organizerEmail || e.organizer || "").trim().replace(/^mailto:/i, "").toLowerCase();
 }
 
 const REPLIES = new Set(["REPLY", "COUNTER", "DECLINECOUNTER", "REFRESH"]);
@@ -62,7 +74,12 @@ export function planFor(invitation: Invitation, events: CalEvent[]): InvitationP
     if (theirs < ours) kind = "outdated";
     else kind = theirs > ours || !sameContent(event, existing) ? "update" : "current";
   }
-  return { kind, invitation, event, existing };
+  const plan: InvitationPlan = { kind, invitation, event, existing };
+  if (existing && (kind === "update" || kind === "cancel")) {
+    const [theirs, ours] = [organizerOf(event), organizerOf(existing)];
+    if (ours && theirs !== ours) plan.otherOrganizer = { theirs: theirs || "?", ours };
+  }
+  return plan;
 }
 
 const longWeekday = new Intl.DateTimeFormat(locale(), { weekday: "long" });

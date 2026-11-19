@@ -53,6 +53,7 @@ export function ContextMenu({ x, y, items, onClose }: Props) {
       ref={ref}
       className="context-menu"
       role="menu"
+      tabIndex={-1}
       style={pos}
       onContextMenu={(e) => e.preventDefault()}
     >

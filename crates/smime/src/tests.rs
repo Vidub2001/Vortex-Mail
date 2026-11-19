@@ -138,7 +138,8 @@ fn a_signature_without_its_certificate_needs_one_kept_here() {
 fn an_unknown_issuer_another_address_and_an_expired_certificate_are_not_verified() {
     let c = checked_detached(DETACHED, &Anchors::default(), "alice@smime.example", NOW, &[]);
     assert_eq!((c.signature.verdict, c.signature.why), (Verdict::NotVerified, Some(Why::UnknownIssuer)));
-    assert_eq!(c.certificate, None, "only a certificate that is trusted and valid is kept (#30 review 7)");
+    // Vortex Mail, audit S5 : gardé, mais « non vérifié » (le verdict le dit).
+    assert_eq!(c.certificate.as_deref(), Some(ALICE), "s5 : autorité inconnue, certificat gardé non vérifié");
     let c = checked_detached(DETACHED, &anchors(), "bob@smime.example", NOW, &[]);
     assert_eq!((c.signature.verdict, c.signature.why), (Verdict::NotVerified, Some(Why::AddressMismatch)));
     assert_eq!(c.certificate, None, "not kept for an address it isn't for");

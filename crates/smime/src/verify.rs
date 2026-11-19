@@ -68,6 +68,8 @@ pub struct Checked {
     pub signature: DigitalSignature,
     /// The signer's certificate, in DER, when the signature over the message is the signer's
     /// and the certificate is for the From address: worth keeping for that address (#30 R9).
+    /// Also given when only its authority is unknown here (Vortex Mail, audit S5): the verdict
+    /// then says it isn't verified.
     pub certificate: Option<Vec<u8>>,
 }
 
@@ -420,9 +422,13 @@ fn one_signer(
         // be relied on, but the message is as it was signed.)
         Err(why) => result(Verdict::NotVerified, Some(why)),
     };
-    // Kept for the sender only when it is trusted, valid now and theirs: it is what mail to them
-    // will be encrypted with.
-    if trust.is_ok() {
+    // Kept for the sender when it is trusted, valid now and theirs: it is what mail to them
+    // will be encrypted with. Vortex Mail (audit S5, choix (b) du lot D4) : aussi quand seule
+    // l'autorité est inconnue de cet ordinateur (Ubuntu et Debian n'en rangent aucune pour le
+    // courrier) ; le verdict reste « non vérifié », l'appelant le garde comme tel et montre son
+    // empreinte. Jamais un certificat révoqué, expiré, d'une autre adresse ou pas pour le courrier.
+    let unknown_authority = matches!(trust, Err(Why::UnknownIssuer | Why::SelfSigned | Why::NoAuthorities));
+    if trust.is_ok() || (unknown_authority && for_email && cert.is_for(context.from) && cert.valid_at(context.now)) {
         r.certificate = Some(cert.der().to_vec());
     }
     r.signature.revocation_checked = revocation == Revocation::Good;

@@ -18,6 +18,7 @@ import type {
   Message,
   MessageSummary,
   MoveReport,
+  NewVersion,
   RestoreReport,
   PimCollection,
   PimSyncReport,
@@ -31,7 +32,31 @@ import type {
   Suggestion,
   TestReport,
 } from "./types";
-import * as mock from "./mock";
+import type { ListSync } from "./lists";
+import type * as Mock from "./mock";
+
+/**
+ * Maquette de l'aperçu navigateur, chargée à sa première utilisation (audit
+ * P7) : dans Tauri, elle n'est jamais appelée, donc jamais téléchargée.
+ * `mock.f(…)` rend la promesse de `f` une fois le module chargé.
+ */
+type LazyMock = {
+  [K in keyof typeof Mock as (typeof Mock)[K] extends (...args: never[]) => unknown ? K : never]: (typeof Mock)[K] extends (
+    ...args: infer A
+  ) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : never;
+};
+let mockModule: Promise<typeof Mock> | undefined;
+const loadMock = (): Promise<typeof Mock> => (mockModule ??= import("./mock"));
+const mock = new Proxy({} as LazyMock, {
+  get:
+    (_, name: string) =>
+    (...args: unknown[]) =>
+      loadMock().then((m) => (m as unknown as Record<string, (...a: unknown[]) => unknown>)[name](...args)),
+});
+/** Refus d'une commande réservée à l'application, dans l'aperçu navigateur. */
+const desktopOnly = (): Promise<never> => loadMock().then((m) => Promise.reject(m.desktopOnly));
 
 /**
  * Dans la fenêtre Tauri, on appelle le backend Rust.
@@ -39,6 +64,10 @@ import * as mock from "./mock";
  * pratique pour travailler l'interface sans recompiler le Rust.
  */
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+// Aperçu navigateur : chargée dès le départ, pour qu'une action de
+// l'utilisateur (ouvrir une rédaction) n'attende pas son téléchargement et
+// garde le droit d'ouvrir une fenêtre.
+if (!inTauri) void loadMock();
 
 export const api = {
   listAccounts: (): Promise<Account[]> =>
@@ -66,8 +95,23 @@ export const api = {
       ? invoke("sync_messages_many", { folderIds })
       : Promise.all(folderIds.map(async (folderId) => ({ folderId, messages: await mock.listMessages(folderId), error: null }))),
 
+  /**
+   * Comme `syncMessagesMany`, sans renvoyer une liste inchangée depuis la
+   * version `known` (audit P1) : `messages` vaut alors `null`.
+   */
+  syncChangedLists: (folderIds: string[], known: (number | null)[]): Promise<ListSync[]> =>
+    inTauri
+      ? invoke("sync_messages_many", { folderIds, known })
+      : Promise.all(
+          folderIds.map(async (folderId) => ({ folderId, messages: await mock.listMessages(folderId), revision: 0, uidValidity: 1, error: null })),
+        ),
+
   getMessage: (id: number): Promise<Message> =>
     inTauri ? invoke("get_message", { id }) : mock.getMessage(id),
+
+  /** Corps nettoyé et texte d'un corps rendu par `getMessage` (audit P7). */
+  bodyViews: (html: string): Promise<{ simple: string; text: string }> =>
+    inTauri ? invoke("body_views", { html }) : mock.bodyViews(html),
 
   setSeen: (ids: number[], seen: boolean): Promise<void> =>
     inTauri ? invoke("set_seen", { ids, seen }) : mock.setSeen(ids, seen),
@@ -89,22 +133,22 @@ export const api = {
 
   /** Télécharge et mémorise les images distantes du message ; renvoie le message à jour. */
   showImages: (id: number): Promise<Message> =>
-    inTauri ? invoke("show_images", { id }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("show_images", { id }) : desktopOnly(),
 
   /** Signature S/MIME examinée de nouveau (lot D1) ; renvoie le message à jour. */
   checkSignature: (id: number): Promise<Message> =>
-    inTauri ? invoke("check_signature", { id }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("check_signature", { id }) : desktopOnly(),
 
   /** Certificat de signature S/MIME d'un compte (lot D2), ou `null`. */
   smimeIdentity: (accountId: string): Promise<SmimeIdentity | null> =>
     inTauri ? invoke("smime_identity", { accountId }) : Promise.resolve(null),
   /** Importe un fichier PKCS #12 (`.p12`, `.pfx`), donné en base64. */
   smimeImport: (accountId: string, data: string, password: string): Promise<SmimeIdentity> =>
-    inTauri ? invoke("smime_import", { accountId, data, password }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("smime_import", { accountId, data, password }) : desktopOnly(),
   smimeRemove: (accountId: string): Promise<void> =>
-    inTauri ? invoke("smime_remove", { accountId }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("smime_remove", { accountId }) : desktopOnly(),
   smimeSignByDefault: (accountId: string, on: boolean): Promise<void> =>
-    inTauri ? invoke("smime_sign_by_default", { accountId, on }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("smime_sign_by_default", { accountId, on }) : desktopOnly(),
   /** Comptes qui peuvent signer (fenêtre de rédaction). */
   smimeSigners: (): Promise<SigningAccount[]> => (inTauri ? invoke("smime_signers") : Promise.resolve([])),
   /** Adresses sans certificat pour leur écrire chiffré (lot D3b). */
@@ -113,45 +157,50 @@ export const api = {
   /** Certificats des correspondants (lot D3b). */
   smimeCorrespondents: (): Promise<CorrespondentInfo[]> => (inTauri ? invoke("smime_correspondents") : Promise.resolve([])),
   smimeForgetCorrespondent: (address: string): Promise<void> =>
-    inTauri ? invoke("smime_forget_correspondent", { address }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("smime_forget_correspondent", { address }) : desktopOnly(),
 
   /** Nouveau dossier (sous `parentId` s'il est donné) ; renvoie l'arborescence à jour. */
   createFolder: (accountId: string, parentId: string | null, name: string): Promise<FolderListing> =>
-    inTauri ? invoke("create_folder", { accountId, parentId, name }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("create_folder", { accountId, parentId, name }) : desktopOnly(),
 
   /** Renomme un dossier personnel ; renvoie l'arborescence à jour. */
   renameFolder: (folderId: string, name: string): Promise<FolderListing> =>
-    inTauri ? invoke("rename_folder", { folderId, name }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("rename_folder", { folderId, name }) : desktopOnly(),
 
   /** Déplace un dossier personnel sous `parentId` (même compte), ou au premier niveau (`null`). */
   moveFolder: (folderId: string, parentId: string | null): Promise<FolderListing> =>
-    inTauri ? invoke("move_folder", { folderId, parentId }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("move_folder", { folderId, parentId }) : desktopOnly(),
 
   deleteFolder: (folderId: string): Promise<FolderListing> =>
-    inTauri ? invoke("delete_folder", { folderId }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("delete_folder", { folderId }) : desktopOnly(),
 
   /** Enregistre des messages en `.eml` dans Téléchargements ; chemins écrits (lot E8a). */
-  exportEml: (ids: number[]): Promise<string[]> => (inTauri ? invoke("export_eml", { ids }) : Promise.reject(mock.desktopOnly)),
+  exportEml: (ids: number[]): Promise<string[]> => (inTauri ? invoke("export_eml", { ids }) : desktopOnly()),
 
   /** Enregistre tout un dossier en `.mbox` dans Téléchargements (lot E8a). */
   exportMbox: (folderId: string): Promise<{ path: string; count: number }> =>
-    inTauri ? invoke("export_mbox", { folderId }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("export_mbox", { folderId }) : desktopOnly(),
 
-  /** Dépose dans un dossier les messages d'un `.eml` ou d'un `.mbox`, lu en base64 (lot E8a). */
-  importMessages: (folderId: string, content: string): Promise<ImportReport> =>
-    inTauri ? invoke("import_messages", { folderId, content }) : Promise.reject(mock.desktopOnly),
+  /**
+   * Dépose dans un dossier les messages d'un `.eml` ou d'un `.mbox` (lot E8a),
+   * envoyés en octets (audit P7) ; le dossier passe dans un en-tête.
+   */
+  importMessages: (folderId: string, data: Uint8Array): Promise<ImportReport> =>
+    inTauri
+      ? invoke("import_messages", data, { headers: { "X-Vortex-Folder": encodeURIComponent(folderId) } })
+      : desktopOnly(),
 
   /** Enregistre un agenda (.ics) ou un carnet (.vcf) dans Téléchargements (lot E8b). */
   exportPim: (collection: string): Promise<{ path: string; count: number }> =>
-    inTauri ? invoke("export_pim", { collection }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("export_pim", { collection }) : desktopOnly(),
 
   /** Importe un fichier .ics dans un agenda, ou .vcf dans un carnet (lot E8b). */
   importPim: (collection: string, content: string): Promise<ImportReport> =>
-    inTauri ? invoke("import_pim", { collection, content }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("import_pim", { collection, content }) : desktopOnly(),
 
   /** Vide définitivement la corbeille ou le courrier indésirable ; nombre de messages supprimés. */
   emptyFolder: (folderId: string): Promise<number> =>
-    inTauri ? invoke("empty_folder", { folderId }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("empty_folder", { folderId }) : desktopOnly(),
 
   /** Remet des messages d'« Éléments supprimés » dans leur dossier d'origine (sinon la boîte de réception). */
   restoreMessages: (ids: number[]): Promise<RestoreReport> =>
@@ -159,7 +208,7 @@ export const api = {
 
   /** Supprime définitivement des messages de la corbeille ou du courrier indésirable ; nombre supprimé. */
   deleteForever: (ids: number[]): Promise<number> =>
-    inTauri ? invoke("delete_forever", { ids }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("delete_forever", { ids }) : desktopOnly(),
 
   /**
    * Envoi en arrière-plan (lot E1) : rend la main une fois le message vérifié ;
@@ -202,7 +251,7 @@ export const api = {
 
   /** Recherche sur les serveurs, dans tous les dossiers de tous les comptes. */
   searchMessages: (query: string): Promise<SearchReport> =>
-    inTauri ? invoke("search_messages", { query }) : mock.search(query).then((results) => ({ results, errors: [] })),
+    inTauri ? invoke("search_messages", { query }) : mock.search(query).then((results) => ({ results, errors: [], unfinished: 0 })),
 
   /** Rejoue les actions faites hors connexion et reprend les déplacements interrompus. */
   flushPending: (): Promise<FlushReport> =>
@@ -234,9 +283,13 @@ export const api = {
   suggestAddresses: (query: string): Promise<Suggestion[]> =>
     inTauri ? invoke("address_suggest", { query }) : mock.suggest(query),
 
+  /** Ne plus proposer une adresse collectée (lot J13) ; un contact reste proposé. */
+  forgetAddress: (email: string): Promise<void> =>
+    inTauri ? invoke("forget_address", { email }) : mock.forgetAddress(email),
+
   /** Rendez-vous d'une invitation reçue (pièce jointe .ics). */
   readInvitation: (id: number, index: number, accountId?: string): Promise<Invitation> =>
-    inTauri ? invoke("read_invitation", { id, index, accountId: accountId ?? null }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("read_invitation", { id, index, accountId: accountId ?? null }) : desktopOnly(),
 
   /**
    * Réponse à une invitation (lot H1) : `send` l'envoie à l'organisateur.
@@ -253,7 +306,7 @@ export const api = {
   ): Promise<{ raw: string }> =>
     inTauri
       ? invoke("answer_invitation", { id, index, accountId, reply: { answer, send, when, asAccount: asAccount ?? null } })
-      : Promise.reject(mock.desktopOnly),
+      : desktopOnly(),
 
   /** Source d'un rendez-vous ou d'un contact, telle que le serveur l'a donnée. */
   pimSource: (id: string): Promise<string> => (inTauri ? invoke("pim_source", { id }) : Promise.resolve("")),
@@ -263,45 +316,45 @@ export const api = {
    * rendez-vous en cache ; `asAccount` : compte invité qui répond.
    */
   answerEvent: (id: string, answer: InvitationAnswer, send: boolean, when: string, asAccount?: string): Promise<void> =>
-    inTauri ? invoke("answer_event", { id, reply: { answer, send, when, asAccount: asAccount ?? null } }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("answer_event", { id, reply: { answer, send, when, asAccount: asAccount ?? null } }) : desktopOnly(),
 
   /** Messages concernés par des actions en attente du réseau. */
   pendingCount: (): Promise<number> => (inTauri ? invoke("pending_count") : Promise.resolve(0)),
 
   /** Ouvre la pièce jointe avec l'application par défaut du système. */
   openAttachment: (id: number, index: number): Promise<string> =>
-    inTauri ? invoke("open_attachment", { id, index }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("open_attachment", { id, index }) : desktopOnly(),
 
   /** Enregistre la pièce jointe dans Téléchargements ; renvoie le chemin. */
   saveAttachment: (id: number, index: number): Promise<string> =>
-    inTauri ? invoke("save_attachment", { id, index }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("save_attachment", { id, index }) : desktopOnly(),
 
   /** Connexion Outlook.com dans le navigateur ; se termine au retour (5 min au plus). */
   oauthSignIn: (email: string, clientId: string): Promise<{ calendar: boolean }> =>
-    inTauri ? invoke("oauth_sign_in", { email, clientId }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("oauth_sign_in", { email, clientId }) : desktopOnly(),
 
   /**
    * Sauvegarde chiffrée de la configuration ; renvoie le chemin du fichier et
    * les comptes dont le mot de passe manque (absent de la sauvegarde).
    */
   exportBackup: (password: string, settings: string): Promise<{ path: string; missing: string[] }> =>
-    inTauri ? invoke("export_backup", { password, settings }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("export_backup", { password, settings }) : desktopOnly(),
   inspectBackup: (content: string, password: string): Promise<BackupInfo> =>
-    inTauri ? invoke("inspect_backup", { content, password }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("inspect_backup", { content, password }) : desktopOnly(),
   /** Remplace la configuration ; renvoie les réglages de l'interface à remettre en place. */
   importBackup: (content: string, password: string): Promise<string> =>
-    inTauri ? invoke("import_backup", { content, password }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("import_backup", { content, password }) : desktopOnly(),
   restartApp: (): Promise<void> => (inTauri ? invoke("restart_app") : Promise.resolve(window.location.reload())),
   o365Status: (email: string): Promise<boolean> => (inTauri ? invoke("o365_status", { email }) : Promise.resolve(false)),
   o365SignOut: (accountId: string, email: string): Promise<void> =>
-    inTauri ? invoke("o365_sign_out", { accountId, email }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("o365_sign_out", { accountId, email }) : desktopOnly(),
   /** Connexion Google ; `mail` : autoriser aussi le courrier (compte réglé en OAuth2). */
   googleSignIn: (email: string, clientId: string, clientSecret: string, mail = false): Promise<void> =>
-    inTauri ? invoke("google_sign_in", { email, clientId, clientSecret, mail }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("google_sign_in", { email, clientId, clientSecret, mail }) : desktopOnly(),
   googleStatus: (email: string): Promise<{ signedIn: boolean; hasClient: boolean }> =>
     inTauri ? invoke("google_status", { email }) : Promise.resolve({ signedIn: false, hasClient: false }),
   googleSignOut: (accountId: string, email: string): Promise<void> =>
-    inTauri ? invoke("google_sign_out", { accountId, email }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("google_sign_out", { accountId, email }) : desktopOnly(),
   oauthStatus: (email: string): Promise<{ signedIn: boolean; hasClientId: boolean }> =>
     inTauri ? invoke("oauth_status", { email }) : Promise.resolve({ signedIn: false, hasClientId: false }),
 
@@ -348,6 +401,11 @@ export const api = {
     inTauri ? invoke("notify_new_mail", { summary, body }) : Promise.resolve(),
   /** Fermer la fenêtre principale la cache dans la zone de notification (lot B3). */
   setKeepInTray: (keep: boolean): Promise<void> => (inTauri ? invoke("set_keep_in_tray", { keep }) : Promise.resolve()),
+  /** Règles et signatures du cache chiffré (audit S8) : (clé, valeur). */
+  prefsGet: (): Promise<[string, string][]> => (inTauri ? invoke("prefs_get") : Promise.resolve([])),
+  prefsSet: (key: string, value: string | null): Promise<void> => (inTauri ? invoke("prefs_set", { key, value }) : Promise.resolve()),
+  /** Nouvelle version publiée sur GitHub (lot K1) ; null : à jour. */
+  checkUpdate: (): Promise<NewVersion | null> => (inTauri ? invoke("check_update") : Promise.resolve(null)),
   openUrl: (url: string): Promise<void> =>
     inTauri ? invoke("open_url", { url }) : Promise.resolve(void window.open(url, "_blank", "noopener")),
 
@@ -370,10 +428,10 @@ export const api = {
 
   /** Mot de passe vide = inchangé. */
   updateAccount: (config: AccountConfig): Promise<Account> =>
-    inTauri ? invoke("update_account", { config }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("update_account", { config }) : desktopOnly(),
 
   removeAccount: (id: string): Promise<void> =>
-    inTauri ? invoke("remove_account", { id }) : Promise.reject(mock.desktopOnly),
+    inTauri ? invoke("remove_account", { id }) : desktopOnly(),
 };
 
 export const runningInTauri = inTauri;

@@ -154,11 +154,11 @@ pub struct Message {
     /// Images distantes autorisées (et intégrées au cache) pour ce message.
     pub images_allowed: bool,
     /// Corps nettoyé (liste blanche) pour la citation et les brouillons ;
-    /// rempli par l'application, vide dans le cœur métier.
+    /// vide dans le cœur métier, calculé par l'application à la demande.
     #[cfg_attr(feature = "serde", serde(default))]
     pub body_simple: String,
-    /// Version texte du corps (mode d'affichage « Texte ») ; rempli par
-    /// l'application, vide dans le cœur métier.
+    /// Version texte du corps (mode d'affichage « Texte ») ; vide dans le
+    /// cœur métier, calculée par l'application à la demande.
     #[cfg_attr(feature = "serde", serde(default))]
     pub body_text: String,
     /// Signature S/MIME vérifiée, en JSON (lot D1) ; vide si le message n'est

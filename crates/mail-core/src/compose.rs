@@ -530,6 +530,9 @@ fn no_controls(s: &str) -> String {
 
 // ------------------------------------------------------------------ corps
 
+/// Chiffres hexadécimaux en majuscules (RFC 2045 §6.7).
+const HEX: [u8; 16] = *b"0123456789ABCDEF";
+
 /// Encodage quoted-printable (RFC 2045), lignes de 76 caractères au plus.
 #[must_use]
 pub fn quoted_printable(text: &str) -> String {
@@ -544,19 +547,29 @@ pub fn quoted_printable(text: &str) -> String {
         for (j, &b) in bytes.iter().enumerate() {
             let last = j + 1 == bytes.len();
             let literal = (b == b' ' || b == b'\t') && !last || (33..=126).contains(&b) && b != b'=';
-            let mut piece = if literal { char::from(b).to_string() } else { format!("={b:02X}") };
+            // Morceau écrit dans un tampon fixe, sans chaîne allouée par octet (audit P11).
+            let mut piece = [0u8; 3];
+            let mut len = if literal {
+                piece[0] = b;
+                1
+            } else {
+                piece = [b'=', HEX[usize::from(b >> 4)], HEX[usize::from(b & 0x0f)]];
+                3
+            };
             // Coupure « douce » : `=` en fin de ligne, invisible au décodage.
-            if width + piece.len() > 75 {
+            if width + len > 75 {
                 out.push_str("=\r\n");
                 width = 0;
             }
             // « From » en début de ligne : certains serveurs le changent en « >From »,
             // ce qui casserait une signature (RFC 3156 §3). Encodé, il passe intact.
             if width == 0 && bytes.get(j..).is_some_and(|rest| rest.starts_with(b"From ")) {
-                piece = "=46".to_string();
+                piece = *b"=46";
+                len = 3;
             }
-            out.push_str(&piece);
-            width += piece.len();
+            // ASCII seulement (lettres, chiffres, `=`, espaces) : toujours de l'UTF-8 valide.
+            out.extend(piece[..len].iter().map(|&c| char::from(c)));
+            width += len;
         }
     }
     out
@@ -1050,9 +1063,9 @@ pub fn smtp_data(message: &[u8]) -> Vec<u8> {
 /// Valeur d'un en-tête du message brut, lignes de continuation dépliées.
 #[must_use]
 pub fn header_value(raw: &[u8], name: &str) -> Option<String> {
-    let text = String::from_utf8_lossy(raw);
-    let head = text.split("\r\n\r\n").next().unwrap_or("");
-    let head = head.split("\n\n").next().unwrap_or("");
+    // Seuls les en-têtes sont convertis en texte (audit P11) : l'appel est
+    // répété une dizaine de fois par message, qui peut peser 20 Mo.
+    let head = String::from_utf8_lossy(&raw[..head_end(raw)]);
     let mut current: Option<String> = None;
     for line in head.lines() {
         if line.starts_with(' ') || line.starts_with('\t') {
@@ -1072,6 +1085,19 @@ pub fn header_value(raw: &[u8], name: &str) -> Option<String> {
         }
     }
     current
+}
+
+/// Fin des en-têtes : premier `\r\n\r\n` ou `\n\n` (le plus tôt des deux),
+/// sinon tout le message. Le parcours s'arrête à la ligne vide.
+fn head_end(raw: &[u8]) -> usize {
+    for (i, _) in raw.iter().enumerate().filter(|(_, b)| **b == b'\n') {
+        match raw.get(i + 1..) {
+            Some([b'\n', ..]) => return i,
+            Some([b'\r', b'\n', ..]) if i > 0 && raw[i - 1] == b'\r' => return i - 1,
+            _ => {}
+        }
+    }
+    raw.len()
 }
 
 /// Adresses d'une liste `To`/`Cc` brute : `"Dupont, Marie" <m@x.fr>, b@y.com`.
@@ -1449,6 +1475,22 @@ mod tests {
         assert_eq!(new_message_id("f@mailo.com", &bytes), format!("<{key}@mailo.com>"), "Message-ID tiré de la clé");
         assert_eq!(send_key_bytes("xyz"), None, "trop courte");
         assert_eq!(send_key_bytes(&"g".repeat(32)), None, "pas hexadécimale");
+    }
+
+    #[test]
+    fn p11_only_the_head_is_read() {
+        // Corps énorme, pas en UTF-8, avec une fausse ligne d'en-tête : jamais lu.
+        let mut raw = b"Subject: Devis\r\nX-Long: a\r\n b\r\n\r\nX-Faux: corps\r\n".to_vec();
+        raw.extend(std::iter::repeat_n(0xFF_u8, 1 << 20));
+        assert_eq!(head_end(&raw), 29);
+        assert_eq!(header_value(&raw, "x-long").as_deref(), Some("a b"));
+        assert_eq!(header_value(&raw, "X-Faux"), None);
+        // Fins de ligne LF seules, la plus tôt des deux fins l'emporte, ou aucune.
+        assert_eq!(head_end(b"A: 1\nB: 2\n\nC: 3\r\n\r\n"), 9);
+        assert_eq!(head_end(b"A: 1\r\n\r\nB: 2\n\n"), 4);
+        assert_eq!(head_end(b"\r\n\r\ncorps"), 0);
+        assert_eq!(head_end(b"A: 1\r\nB: 2"), 10);
+        assert_eq!(header_value(b"A: 1\nB: 2\n\nC: 3", "C"), None);
     }
 
     #[test]

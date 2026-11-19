@@ -40,6 +40,7 @@ mod smime;
 mod transport;
 mod tray;
 mod tz;
+mod update;
 mod windows;
 mod xml;
 
@@ -462,12 +463,15 @@ pub fn run() {
             windows::save_draft_backup,
             windows::draft_backups,
             windows::clear_draft_backup,
+            windows::prefs_get,
+            windows::prefs_set,
             commands::list_folders,
             commands::sync_folders,
             commands::list_messages,
             commands::sync_messages,
             commands::sync_messages_many,
             commands::get_message,
+            commands::body_views,
             commands::set_seen,
             commands::set_flagged,
             commands::move_messages,
@@ -516,6 +520,7 @@ pub fn run() {
             commands::o365_status,
             commands::o365_sign_out,
             commands::open_url,
+            commands::check_update,
             commands::save_draft,
             commands::discard_draft,
             commands::open_draft,
@@ -534,6 +539,7 @@ pub fn run() {
             commands::pim_delete,
             commands::pim_source,
             commands::address_suggest,
+            commands::forget_address,
             commands::read_invitation,
             commands::answer_invitation,
             commands::answer_event,

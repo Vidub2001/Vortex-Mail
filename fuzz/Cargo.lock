@@ -1019,7 +1019,7 @@ dependencies = [
  "cbc 0.1.2",
  "dbus",
  "fastrand",
- "hkdf",
+ "hkdf 0.12.4",
  "num",
  "once_cell",
  "sha2 0.10.9",
@@ -1287,6 +1287,7 @@ dependencies = [
  "digest 0.11.3",
  "ff",
  "group",
+ "hkdf 0.13.0",
  "hybrid-array",
  "pkcs8",
  "rand_core 0.10.1",
@@ -2017,6 +2018,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hkdf"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4aaa26c720c68b866f2c96ef5c1264b3e6f473fe5d4ce61cd44bbe913e553018"
+dependencies = [
+ "hmac 0.13.0",
+]
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2629,7 +2639,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3"
 dependencies = [
  "cc",
+ "openssl-sys",
  "pkg-config",
+ "sqlcipher-src",
  "vcpkg",
 ]
 
@@ -3261,6 +3273,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
 
 [[package]]
+name = "openssl-src"
+version = "300.6.1+3.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46eb8fb9fb3b61ce1c0f8a026c4c1a0714d3a9e138e7fbde78753ce2babc3846"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "openssl-sys"
 version = "0.9.118"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3268,6 +3289,7 @@ checksum = "19c413d6ec9ebaf5e1c829d355cb3e9f783778d700f135be0921d52fce3c60ae"
 dependencies = [
  "cc",
  "libc",
+ "openssl-src",
  "pkg-config",
  "vcpkg",
 ]
@@ -4194,7 +4216,7 @@ dependencies = [
  "cbc 0.1.2",
  "futures-util",
  "generic-array",
- "hkdf",
+ "hkdf 0.12.4",
  "num",
  "once_cell",
  "rand 0.8.8",
@@ -4630,6 +4652,12 @@ dependencies = [
  "base64ct",
  "der",
 ]
+
+[[package]]
+name = "sqlcipher-src"
+version = "419.0.6+sqlcipher-4.19.0-sqlite-3.53.4-libtomcrypt-1.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab732d48ebf2a1449e94d071b26544f99845834c75c3c210e927ace097b49aa4"
 
 [[package]]
 name = "sqlite-wasm-rs"
@@ -5595,6 +5623,7 @@ name = "vortex-smime"
 version = "0.1.0"
 dependencies = [
  "aes 0.9.4",
+ "aes-gcm",
  "cbc 0.2.1",
  "cms",
  "const-oid",
@@ -5611,11 +5640,12 @@ dependencies = [
  "sha2 0.11.1",
  "spki",
  "x509-cert",
+ "zeroize",
 ]
 
 [[package]]
 name = "vortexmail"
-version = "0.1.0"
+version = "0.3.5"
 dependencies = [
  "ammonia",
  "getrandom 0.2.17",
@@ -5636,6 +5666,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-single-instance",
  "vortex-smime",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

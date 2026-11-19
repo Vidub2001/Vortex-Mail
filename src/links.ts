@@ -11,7 +11,8 @@
 // l'interface (lien trompeur, `mailto:`) passent par l'hôte réservé
 // `LINK_HOST` et reviennent à la fenêtre.
 //
-// Module sans dépendance : testé par `node --test tests/frontend/`.
+// Module sans autre dépendance que `text.ts` : testé par `node --test tests/frontend/`.
+import { trimEndOf } from "./text";
 
 /** Hôte réservé des liens renvoyés à l'interface ; même valeur que `windows.rs`. */
 export const LINK_HOST = "link.vortex.invalid";
@@ -42,12 +43,19 @@ export function shownHost(text: string): string | null {
   // même (NFKC), point final ignoré : sinon « www.banque\u200b.fr » ne
   // ressemblait plus à une adresse, et l'alerte se taisait (relecture du
   // 10 novembre 2026).
-  const s = text
-    .normalize("NFKC")
-    .replace(/[\p{Cf}\u034F\u115F\u1160\u3164\uFE00-\uFE0F\uFFA0]/gu, "")
-    .trim()
-    .toLowerCase()
-    .replace(/\.+$/, "");
+  const s = trimEndOf(
+    text
+      .normalize("NFKC")
+      // Sélecteurs de variante (U+FE00 à U+FE0F et suivants) par leur propriété :
+      // écrits en intervalle après U+3164, ils se combinaient avec lui (lot L2).
+      .replace(/[\p{Cf}\p{Variation_Selector}\u034F\u115F\u1160\u3164\uFFA0]/gu, "")
+      .trim()
+      .toLowerCase(),
+    ".",
+  );
+  // Plus long qu'une adresse réelle : pas une adresse, et l'expression
+  // ci-dessous n'est jamais appliquée à un texte démesuré (lot L2).
+  if (s.length > 2048) return null;
   const m =
     /^(?:([a-z][a-z0-9+.-]*):\/\/)?(?:[^\s/@:]+@)?((?:[\p{L}\p{N}-]+\.)+([\p{L}]{2,}|xn--[a-z0-9-]+))(?::\d+)?(?:[/?#]\S*)?$/u.exec(s);
   if (!m) return null;

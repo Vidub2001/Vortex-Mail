@@ -31,9 +31,9 @@ export function ReconnectBar({ onReconnected, notify }: Props) {
       );
     const unlisten = listen<Pending>("auth-required", (e) => add(e.payload));
     // Connexions déjà signalées avant l'ouverture de la fenêtre (synchronisation du démarrage).
-    unlisten.then(() => api.authPending().then((list) => list.forEach(add)).catch(() => {}));
+    unlisten.then(() => api.authPending().then((list) => list.forEach(add)).catch(() => {}), () => {});
     return () => {
-      unlisten.then((f) => f());
+      unlisten.then((f) => f(), () => {});
     };
   }, []);
 

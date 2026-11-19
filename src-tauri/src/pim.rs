@@ -2,13 +2,14 @@
 //! carnet et un agenda « Sur cet ordinateur ». Tout est gardé dans le cache
 //! SQLite : affichage immédiat, et lecture hors connexion.
 
+use std::collections::{BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use crate::cache::{Cache, PimCollection, PimItem};
+use crate::cache::{Cache, CollectedAddress, PimCollection, PimItem};
 use crate::config::{AccountConfig, AuthMethod};
 use crate::dav::{self, Auth, Kind, Scope};
 use crate::pimfmt::{self, Contact, Event};
@@ -32,7 +33,7 @@ pub(crate) struct SyncReport {
 pub(crate) struct Suggestion {
     pub name: String,
     pub email: String,
-    /// Fiche du carnet (sinon : correspondant des messages).
+    /// Fiche du carnet (sinon : adresse collectée, que l'on peut écarter).
     pub contact: bool,
 }
 
@@ -199,6 +200,8 @@ fn known_provider(c: &AccountConfig, kind: Kind) -> Option<String> {
 
 /// Retire du cache les carnets, agendas et fiches d'un compte (déconnexion).
 pub(crate) fn forget_account(cache: &Arc<Mutex<Cache>>, account: &str) -> Result<(), String> {
+    let prefix = format!("{account}|");
+    discovered().retain(|key| !key.starts_with(&prefix));
     let mut c = lock_cache(cache);
     for kind in [Kind::Contacts, Kind::Calendar] {
         c.pim_set_collections(account, kind.as_str(), &[])?;
@@ -264,69 +267,137 @@ fn sync_account(cache: &Arc<Mutex<Cache>>, c: &AccountConfig) -> Result<(u32, u3
     }
 }
 
+/// Carnets et agendas déjà trouvés depuis le démarrage, par compte, type et
+/// adresse de départ : la découverte (DNS, `.well-known`, trois `PROPFIND`)
+/// n'est refaite qu'au premier passage, après une erreur, ou si l'adresse de
+/// départ change (audit P6).
+static DISCOVERED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+fn discovered() -> std::sync::MutexGuard<'static, BTreeSet<String>> {
+    // Ensemble remplacé élément par élément, sans état intermédiaire : sûr après une panique.
+    DISCOVERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 fn sync_kind(cache: &Arc<Mutex<Cache>>, c: &AccountConfig, auth: &Auth, kind: Kind, counts: &mut (u32, u32)) -> Result<(), String> {
+    let (hint, explicit) = start_hint(c, kind);
+    if hint == "-" {
+        return Ok(());
+    }
+    let key = format!("{}|{}|{hint}", c.id, kind.as_str());
+    if discovered().contains(&key) {
+        let known: Vec<dav::Collection> = lock_cache(cache)
+            .pim_collections()?
+            .into_iter()
+            .filter(|col| col.account == c.id && col.kind == kind.as_str())
+            .map(|col| dav::Collection { url: col.url, name: col.name, color: col.color, kind })
+            .collect();
+        if !known.is_empty() {
+            if let Ok(found) = sync_collections(cache, c, auth, kind, &known) {
+                add_counts(counts, found);
+                return Ok(());
+            }
+        }
+        // Erreur (carnet supprimé, adresse changée…) : nouvelle découverte.
+        discovered().remove(&key);
+    }
+    let collections = match dav::discover(&hint, auth, kind) {
+        Ok(list) => list,
+        // Recherche automatique sans résultat : le compte n'a simplement pas de service.
+        Err(_) if !explicit => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    let stored: Vec<PimCollection> = collections
+        .iter()
+        .map(|col| PimCollection {
+            account: c.id.clone(),
+            url: col.url.clone(),
+            kind: kind.as_str().into(),
+            name: col.name.clone(),
+            color: col.color.chars().take(7).collect(),
+        })
+        .collect();
+    lock_cache(cache).pim_set_collections(&c.id, kind.as_str(), &stored)?;
+    let found = sync_collections(cache, c, auth, kind, &collections)?;
+    discovered().insert(key);
+    add_counts(counts, found);
+    Ok(())
+}
+
+fn add_counts(counts: &mut (u32, u32), found: (u32, u32)) {
+    counts.0 = counts.0.saturating_add(found.0);
+    counts.1 = counts.1.saturating_add(found.1);
+}
+
+/// Relit chaque carnet ou agenda : seuls les éléments nouveaux ou changés
+/// sont téléchargés et analysés, les autres sont repris du cache (audit P6).
+/// Rend le nombre de contacts et de rendez-vous.
+fn sync_collections(
+    cache: &Arc<Mutex<Cache>>,
+    c: &AccountConfig,
+    auth: &Auth,
+    kind: Kind,
+    collections: &[dav::Collection],
+) -> Result<(u32, u32), String> {
     let from = utc_stamp(now() - 365 * 86_400);
     let to = utc_stamp(now() + 2 * 365 * 86_400);
-    {
-        let (hint, explicit) = start_hint(c, kind);
-        if hint == "-" {
-            return Ok(());
-        }
-        let collections = match dav::discover(&hint, auth, kind) {
-            Ok(list) => list,
-            // Recherche automatique sans résultat : le compte n'a simplement pas de service.
-            Err(_) if !explicit => return Ok(()),
-            Err(e) => return Err(e),
-        };
-        let stored: Vec<PimCollection> = collections
-            .iter()
-            .map(|col| PimCollection {
-                account: c.id.clone(),
-                url: col.url.clone(),
-                kind: kind.as_str().into(),
-                name: col.name.clone(),
-                color: col.color.chars().take(7).collect(),
-            })
-            .collect();
-        lock_cache(cache).pim_set_collections(&c.id, kind.as_str(), &stored)?;
-        for col in &collections {
-            let items = match kind {
-                Kind::Contacts => dav::fetch_contacts(&col.url, auth)?,
-                Kind::Calendar => dav::fetch_events(&col.url, auth, &from, &to)?,
-            };
-            let rows: Vec<PimItem> = items
-                .into_iter()
-                .filter_map(|item| {
-                    let id = format!("{}|{}", c.id, item.url);
-                    let data = match kind {
-                        Kind::Contacts => {
-                            let mut contact = pimfmt::parse_vcard(&item.data)?;
-                            contact.id.clone_from(&id);
-                            contact.source.clone_from(&c.id);
-                            counts.0 += 1;
-                            json(&contact)
-                        }
-                        Kind::Calendar => {
-                            let mut events = pimfmt::parse_ical(&item.data);
-                            if events.is_empty() {
-                                return None;
-                            }
-                            for e in &mut events {
-                                e.id.clone_from(&id);
-                                e.source.clone_from(&c.id);
-                                e.calendar.clone_from(&col.url);
-                            }
-                            counts.1 = counts.1.saturating_add(u32::try_from(events.len()).unwrap_or(u32::MAX));
-                            json(&events)
-                        }
-                    };
-                    Some(PimItem { id, url: item.url, etag: item.etag, raw: item.data, data })
-                })
-                .collect();
-            lock_cache(cache).pim_replace_items(&c.id, kind.as_str(), &col.url, &rows)?;
+    let mut counts = (0u32, 0u32);
+    let mut cached: HashMap<String, PimItem> = HashMap::new();
+    for (item_kind, collection, item) in lock_cache(cache).pim_items_of(&c.id)? {
+        if item_kind == kind.as_str() {
+            cached.insert(format!("{collection}\n{}", item.url), item);
         }
     }
-    Ok(())
+    for col in collections {
+        let prefix = format!("{}\n", col.url);
+        let known: HashMap<String, String> =
+            cached.iter().filter_map(|(key, item)| key.strip_prefix(&prefix).map(|url| (url.to_owned(), item.etag.clone()))).collect();
+        let fetched = match kind {
+            Kind::Contacts => dav::fetch_contacts(&col.url, auth, &known)?,
+            Kind::Calendar => dav::fetch_events(&col.url, auth, &from, &to, &known)?,
+        };
+        let mut rows: Vec<PimItem> = fetched
+            .changed
+            .into_iter()
+            .filter_map(|item| {
+                let id = format!("{}|{}", c.id, item.url);
+                let data = match kind {
+                    Kind::Contacts => {
+                        let mut contact = pimfmt::parse_vcard(&item.data)?;
+                        contact.id.clone_from(&id);
+                        contact.source.clone_from(&c.id);
+                        json(&contact)
+                    }
+                    Kind::Calendar => {
+                        let mut events = pimfmt::parse_ical(&item.data);
+                        if events.is_empty() {
+                            return None;
+                        }
+                        for e in &mut events {
+                            e.id.clone_from(&id);
+                            e.source.clone_from(&c.id);
+                            e.calendar.clone_from(&col.url);
+                        }
+                        json(&events)
+                    }
+                };
+                Some(PimItem { id, url: item.url, etag: item.etag, raw: item.data, data })
+            })
+            .collect();
+        rows.extend(fetched.unchanged.iter().filter_map(|url| cached.remove(&format!("{prefix}{url}"))));
+        for row in &rows {
+            match kind {
+                Kind::Contacts => counts.0 = counts.0.saturating_add(1),
+                Kind::Calendar => counts.1 = counts.1.saturating_add(event_count(&row.data)),
+            }
+        }
+        lock_cache(cache).pim_replace_items(&c.id, kind.as_str(), &col.url, &rows)?;
+    }
+    Ok(counts)
+}
+
+/// Nombre de rendez-vous d'un élément d'agenda (liste JSON d'`Event`).
+fn event_count(data: &str) -> u32 {
+    serde_json::from_str::<Vec<serde::de::IgnoredAny>>(data).map_or(0, |events| u32::try_from(events.len()).unwrap_or(u32::MAX))
 }
 
 // ------------------------------------------------------------------ lecture
@@ -354,7 +425,116 @@ pub(crate) fn events(cache: &Arc<Mutex<Cache>>) -> Result<Vec<Event>, String> {
     Ok(lock_cache(cache).pim_data("calendar")?.iter().filter_map(|d| serde_json::from_str::<Vec<Event>>(d).ok()).flatten().collect())
 }
 
-/// Adresses commençant par la saisie : contacts d'abord, puis correspondants.
+/// Nom (et sa forme en minuscules) et adresses de chaque fiche, dans l'ordre
+/// du carnet.
+type ContactIndex = Arc<Vec<(String, String, Vec<String>)>>;
+
+/// Fiches gardées pour la complétion des adresses (lot J10) : relire et
+/// analyser tous les contacts à chaque frappe coûte cher avec un gros carnet.
+/// Clé : le cache (son adresse) et sa version des carnets (`pim_revision`).
+static CONTACT_INDEX: Mutex<Option<(usize, u64, ContactIndex)>> = Mutex::new(None);
+
+fn contact_index(cache: &Arc<Mutex<Cache>>) -> Result<ContactIndex, String> {
+    let owner = Arc::as_ptr(cache).addr();
+    let revision = lock_cache(cache).pim_revision();
+    let mut memo = CONTACT_INDEX.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((o, r, index)) = memo.as_ref() {
+        if *o == owner && *r == revision {
+            return Ok(Arc::clone(index));
+        }
+    }
+    let index: ContactIndex = Arc::new(contacts(cache)?.into_iter().map(|c| (c.name.to_lowercase(), c.name, c.emails)).collect());
+    // Version lue avant les fiches : une écriture entre les deux fera seulement relire.
+    *memo = Some((owner, revision, Arc::clone(&index)));
+    Ok(index)
+}
+
+/// Adresses collectées prêtes pour la complétion (lot J13), de la plus utile
+/// à la moins utile : (nom, adresse, nom et adresse en minuscules).
+type AddressIndex = Arc<Vec<(String, String, String)>>;
+
+/// Comme [`CONTACT_INDEX`] : gardé tant que les adresses collectées ne
+/// changent pas (`addresses_revision`).
+static ADDRESS_INDEX: Mutex<Option<(usize, u64, AddressIndex)>> = Mutex::new(None);
+
+/// Rang d'une adresse collectée : ses messages envoyés, comptés à moitié tous
+/// les six mois depuis le dernier envoi (on écrit d'abord aux gens d'aujourd'hui).
+fn rank(address: &CollectedAddress, now: i64) -> f64 {
+    let age_days = u32::try_from((now - address.last).max(0) / 86_400).unwrap_or(u32::MAX);
+    f64::from(address.sent.max(1)) * 0.5_f64.powf(f64::from(age_days) / 182.0)
+}
+
+fn address_index(cache: &Arc<Mutex<Cache>>) -> Result<AddressIndex, String> {
+    let owner = Arc::as_ptr(cache).addr();
+    let revision = lock_cache(cache).addresses_revision();
+    let mut memo = ADDRESS_INDEX.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((o, r, index)) = memo.as_ref() {
+        if *o == owner && *r == revision {
+            return Ok(Arc::clone(index));
+        }
+    }
+    // Version lue avant la table : une écriture entre les deux fera seulement relire.
+    let mut collected = lock_cache(cache).collected_addresses()?;
+    let at = now();
+    collected.sort_by(|a, b| rank(b, at).total_cmp(&rank(a, at)).then_with(|| a.email.cmp(&b.email)));
+    let index: AddressIndex = Arc::new(
+        collected
+            .into_iter()
+            .map(|a| {
+                let haystack = format!("{} {}", a.name.to_lowercase(), a.email.to_lowercase());
+                (a.name, a.email, haystack)
+            })
+            .collect(),
+    );
+    *memo = Some((owner, revision, Arc::clone(&index)));
+    Ok(index)
+}
+
+/// Nom et adresse d'un destinataire saisi (`Nom <adresse>`, `"Dupont, Marie"
+/// <m@x.fr>` ou l'adresse seule).
+fn mailbox_parts(entry: &str) -> Option<(String, String)> {
+    let entry = entry.trim();
+    let (name, email) = match entry.strip_suffix('>').and_then(|e| e.rsplit_once('<')) {
+        Some((name, email)) => (unquote(name.trim()), email.trim()),
+        None => (String::new(), entry),
+    };
+    (email.contains('@') && !email.contains(char::is_whitespace)).then(|| (name, email.to_string()))
+}
+
+/// Nom entre guillemets (RFC 5322 §3.2.4) : une paire de guillemets retirée,
+/// `\"` et `\\` rendus tels quels.
+fn unquote(name: &str) -> String {
+    let Some(inner) = name.strip_prefix('"').and_then(|n| n.strip_suffix('"')) else { return name.to_string() };
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        out.push(if c == '\\' { chars.next().unwrap_or(c) } else { c });
+    }
+    out
+}
+
+/// Note les destinataires d'un message envoyé depuis `account` (`To`, `Cc`,
+/// `Bcc`) pour la complétion (lot J13) ; ils seront retirés avec le compte.
+///
+/// # Errors
+///
+/// Cache inutilisable.
+pub(crate) fn note_sent(cache: &Arc<Mutex<Cache>>, account: &str, draft: &mail_core::Draft) -> Result<(), String> {
+    let recipients: Vec<(String, String)> =
+        draft.to.iter().chain(&draft.cc).chain(&draft.bcc).map(String::as_str).filter_map(mailbox_parts).collect();
+    lock_cache(cache).note_sent_to(account, &recipients, now())
+}
+
+/// Écarte une adresse collectée de la complétion (lot J13).
+///
+/// # Errors
+///
+/// Cache inutilisable.
+pub(crate) fn forget_address(cache: &Arc<Mutex<Cache>>, email: &str) -> Result<(), String> {
+    lock_cache(cache).forget_address(email)
+}
+
+/// Adresses contenant la saisie : contacts d'abord, puis adresses collectées.
 pub(crate) fn suggest(cache: &Arc<Mutex<Cache>>, query: &str) -> Result<Vec<Suggestion>, String> {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
@@ -367,16 +547,18 @@ pub(crate) fn suggest(cache: &Arc<Mutex<Cache>>, query: &str) -> Result<Vec<Sugg
         }
         out.push(Suggestion { name: name.to_string(), email: email.to_string(), contact });
     };
-    for c in contacts(cache)? {
-        let name_match = c.name.to_lowercase().contains(&q);
-        for e in &c.emails {
+    let index = contact_index(cache)?;
+    for (lower, name, emails) in &*index {
+        let name_match = lower.contains(&q);
+        for e in emails {
             if name_match || e.to_lowercase().contains(&q) {
-                push(&c.name, e, true);
+                push(name, e, true);
             }
         }
     }
-    for (name, email, _) in lock_cache(cache).correspondents(&q, 20)? {
-        push(&name, &email, false);
+    // Les premières suffisent : la liste est rangée de la plus utile à la moins utile.
+    for (name, email, _) in address_index(cache)?.iter().filter(|(_, _, haystack)| haystack.contains(&q)).take(16) {
+        push(name, email, false);
     }
     out.truncate(8);
     Ok(out)
@@ -727,12 +909,19 @@ pub(crate) fn import_calendar(
     }
     let zones: String = pimfmt::component_blocks(text, "VTIMEZONE").iter().map(|b| block_text(b)).collect();
     // Série et occurrences modifiées ensemble, dans l'ordre du fichier.
+    // Table UID → place du groupe : un passage, au lieu d'une recherche dans
+    // tous les groupes pour chaque bloc (audit P7).
     let mut groups: Vec<(String, String)> = Vec::new();
+    let mut by_uid: HashMap<String, usize> = HashMap::new();
     for block in &blocks {
         let uid = block_uid(block);
-        match groups.iter_mut().find(|(u, _)| !uid.is_empty() && *u == uid) {
-            Some((_, group)) => group.push_str(&block_text(block)),
-            None => groups.push((uid, block_text(block))),
+        if let Some(&at) = by_uid.get(&uid).filter(|_| !uid.is_empty()) {
+            groups[at].1.push_str(&block_text(block));
+        } else {
+            if !uid.is_empty() {
+                by_uid.insert(uid.clone(), groups.len());
+            }
+            groups.push((uid, block_text(block)));
         }
     }
     let known = known_uids(cache, collection)?;
@@ -966,8 +1155,63 @@ mod tests {
     }
 
     #[test]
+    fn p6_rendez_vous_comptes_sans_les_relire() {
+        assert_eq!(event_count(r#"[{"id":"a"},{"id":"b"}]"#), 2);
+        assert_eq!(event_count("[]"), 0);
+        assert_eq!(event_count("illisible"), 0);
+    }
+
+    #[test]
     fn uids_are_unique() {
         assert_ne!(new_uid(), new_uid());
+    }
+
+    #[test]
+    fn j10_completion_suit_les_changements_du_carnet() {
+        let cache = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        ensure_local(&cache);
+        let vcf = |name: &str| format!("BEGIN:VCARD\r\nVERSION:3.0\r\nUID:marie@x\r\nFN:{name}\r\nEMAIL:marie@x.fr\r\nEND:VCARD\r\n");
+        import_contacts(&cache, &[], LOCAL_BOOK, &vcf("Marie Curie")).unwrap();
+        let found = suggest(&cache, "curie").unwrap();
+        assert_eq!(found.first().map(|s| (s.name.as_str(), s.email.as_str(), s.contact)), Some(("Marie Curie", "marie@x.fr", true)));
+        // Fiche renommée : la complétion le voit aussitôt, sans index périmé.
+        import_contacts(&cache, &[], LOCAL_BOOK, &vcf("Marie Sklodowska")).unwrap();
+        assert!(suggest(&cache, "curie").unwrap().iter().all(|s| !s.contact));
+        assert_eq!(suggest(&cache, "sklodowska").unwrap().len(), 1);
+        // Un autre cache (autre profil) ne reprend pas l'index du premier.
+        let other = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        assert_eq!(suggest(&other, "sklodowska").unwrap(), Vec::<Suggestion>::new());
+    }
+
+    #[test]
+    fn j13_completion_par_les_adresses_collectees() {
+        let cache = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        let draft = mail_core::Draft {
+            to: vec![r#""Dupont, Marie" <marie@x.fr>"#.into()],
+            cc: vec!["paul@y.fr".into(), "pas une adresse".into()],
+            bcc: vec!["Cachée <cache@z.fr>".into()],
+            ..mail_core::Draft::default()
+        };
+        note_sent(&cache, "a", &draft).unwrap();
+        let shown = |q: &str| suggest(&cache, q).unwrap().into_iter().map(|s| (s.name, s.email, s.contact)).collect::<Vec<_>>();
+        assert_eq!(shown("dupont"), [("Dupont, Marie".to_string(), "marie@x.fr".to_string(), false)], "nom entre guillemets lu");
+        assert_eq!(shown("y.fr"), [(String::new(), "paul@y.fr".to_string(), false)]);
+        assert_eq!(shown("cach").len(), 1, "copie cachée comprise");
+        // Écartée : plus proposée, sans index périmé.
+        forget_address(&cache, "marie@x.fr").unwrap();
+        assert_eq!(shown("dupont"), Vec::new());
+    }
+
+    #[test]
+    fn j13_rang_frequence_et_anciennete() {
+        let at = 1_800_000_000;
+        let address =
+            |sent: u32, days_ago: i64| CollectedAddress { email: "x@y.fr".into(), name: String::new(), sent, last: at - days_ago * 86_400 };
+        assert!(rank(&address(2, 0), at) > rank(&address(10, 3 * 365), at), "écrit récemment avant écrit souvent il y a longtemps");
+        assert!(rank(&address(5, 10), at) > rank(&address(2, 10), at), "à date égale, le plus souvent");
+        assert!(rank(&address(0, 0), at) > 0.0, "noté à l'envoi, pas encore trouvé dans « Envoyés »");
+        assert_eq!(mailbox_parts(r#"  "Le \"Chef\"" <chef@x.fr> "#), Some((r#"Le "Chef""#.to_string(), "chef@x.fr".to_string())));
+        assert_eq!(mailbox_parts("sans arobase"), None);
     }
 
     #[test]

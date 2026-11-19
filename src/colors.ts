@@ -8,7 +8,7 @@ export function colorName(color: string): string {
   if (color === "transparent") return t("Aucune");
   const m = /^#?([0-9a-f]{6})$/i.exec(color.trim());
   if (!m) return color;
-  const n = parseInt(m[1], 16);
+  const n = Number.parseInt(m[1], 16);
   const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => v / 255);
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);

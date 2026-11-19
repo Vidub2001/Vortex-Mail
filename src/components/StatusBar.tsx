@@ -1,8 +1,8 @@
-import { Spinner } from "@fluentui/react-components";
 import { ArrowSync16Regular, CheckmarkCircle16Regular, CloudCheckmark16Regular, CloudOff16Regular } from "@fluentui/react-icons";
 import { useEffect, useState } from "react";
 import { formatTime } from "../general";
 import { t } from "../i18n";
+import { VortexSpinner } from "./VortexSpinner";
 
 /**
  * Synchronisation plus longue que cela : signalée comme une attente. En deçà,
@@ -41,7 +41,7 @@ export function StatusBar(p: Props) {
       <span>{p.offline ? t("Hors ligne — messages enregistrés") : t("Connecté")}</span>
       {!p.offline && p.syncing && slow ? (
         <span className="status-item">
-          <Spinner size="extra-tiny" /> {t("Synchronisation…")}
+          <VortexSpinner size={14} label={t("Synchronisation…")} />
         </span>
       ) : (
         !p.offline &&
@@ -55,7 +55,7 @@ export function StatusBar(p: Props) {
         <span className="status-item" title={t("Contenu des messages disponible sans connexion (hors corbeille et indésirables)")}>
           {p.offlinePending > 0 ? (
             <>
-              <Spinner size="extra-tiny" /> {t("Hors connexion : {n} à télécharger", { n: p.offlinePending })}
+              <VortexSpinner size={14} label={t("Hors connexion : {n} à télécharger", { n: p.offlinePending })} />
             </>
           ) : (
             <>

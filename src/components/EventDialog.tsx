@@ -491,7 +491,7 @@ export function EventDialog({ draft, calendars, accounts, onClose, onSaved, onEr
           // Ctrl+Entrée : enregistrer.
           if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !busy) {
             e.preventDefault();
-            save();
+            void save();
           }
         }}
       >

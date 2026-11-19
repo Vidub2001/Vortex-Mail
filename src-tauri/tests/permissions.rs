@@ -58,6 +58,7 @@ fn droits_exacts_des_fenetres_secondaires() {
         message,
         [
             "answer_invitation",
+            "body_views",
             "check_signature",
             "event_save",
             "get_message",
@@ -78,7 +79,7 @@ fn droits_exacts_des_fenetres_secondaires() {
             "show_images",
             "window_bootstrap",
         ],
-        "fenêtre de message : 20 commandes (lot H1 : réponse aux invitations)"
+        "fenêtre de message : 21 commandes (audit P7 : vues du corps à la demande)"
     );
     let compose: Vec<String> = granted(include_str!("../capabilities/compose.json")).into_iter().collect();
     assert_eq!(
@@ -86,6 +87,7 @@ fn droits_exacts_des_fenetres_secondaires() {
         [
             "address_suggest",
             "discard_draft",
+            "forget_address",
             "list_accounts",
             "notify_main",
             "open_draft",
@@ -96,7 +98,7 @@ fn droits_exacts_des_fenetres_secondaires() {
             "smime_signers",
             "window_bootstrap",
         ],
-        "fenêtre de rédaction : 11 commandes"
+        "fenêtre de rédaction : 12 commandes (lot J13 : écarter une adresse de la complétion)"
     );
 }
 
@@ -137,6 +139,9 @@ fn la_redaction_n_a_pas_acces_aux_comptes() {
         "smime_sign_by_default",
         "smime_correspondents",
         "smime_forget_correspondent",
+        // Règles et signatures du cache chiffré (audit S8) : fenêtre principale seulement.
+        "prefs_get",
+        "prefs_set",
     ] {
         assert!(!compose.contains(forbidden), "compose : {forbidden} ne doit pas être accordé");
         assert!(!message.contains(forbidden), "message : {forbidden} ne doit pas être accordé");

@@ -73,8 +73,10 @@ export function fileSize(bytes: number): string {
 /** Images distantes dans le HTML (src, background, url() des styles) ? */
 export function hasRemoteImages(html: string): boolean {
   return (
-    /(?:^|[\s"'])(?:src|background)\s*=\s*["']?\s*(?:https?:)?\/\//i.test(html) ||
-    /url\(\s*["']?\s*(?:https?:)?\/\//i.test(html)
+    // Guillemet facultatif suivi de ses espaces, en un seul groupe : deux `\s*`
+    // séparés par `["']?` se disputaient les mêmes espaces (retours arrière, lot L2).
+    /(?:^|[\s"'])(?:src|background)\s*=\s*(?:["']\s*)?(?:https?:)?\/\//i.test(html) ||
+    /url\(\s*(?:["']\s*)?(?:https?:)?\/\//i.test(html)
   );
 }
 

@@ -225,6 +225,11 @@ pub(crate) fn access_token(user: &str) -> Result<String, String> {
     if let Some(token) = cache_get(user) {
         return Ok(token);
     }
+    // Un renouvellement à la fois (audit S7, voir `oauth::REFRESHING`).
+    let _refreshing = crate::oauth::REFRESHING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(token) = cache_get(user) {
+        return Ok(token);
+    }
     let signed_out = crate::auth::sign_out_count(&token_key(user));
     let not_connected = || {
         crate::auth::sign_in_required("google", crate::auth::ALL, user);

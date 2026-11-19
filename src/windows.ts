@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { api, runningInTauri } from "./api";
 import { t } from "./i18n";
+import { secureStore } from "./secure-store";
 import type { ComposeInit } from "./compose";
 import type { AttachmentInput, Draft, SendReport } from "./types";
 
@@ -49,7 +50,7 @@ function settingsSnapshot(): string {
   const out: Record<string, string> = {};
   try {
     for (const key of SHARED_KEYS) {
-      const value = localStorage.getItem(key);
+      const value = secureStore.getItem(key);
       if (value !== null) out[key] = value;
     }
   } catch {
@@ -70,7 +71,8 @@ export async function bootstrapSecondaryWindow(params: URLSearchParams): Promise
     const settings = JSON.parse(boot.settings || "{}") as Record<string, unknown>;
     for (const key of SHARED_KEYS) {
       const value = settings[key];
-      if (typeof value === "string") localStorage.setItem(key, value);
+      // Signatures (cache chiffré, audit S8) : en mémoire seulement dans cette fenêtre.
+      if (typeof value === "string") secureStore.prime(key, value);
     }
     const key = params.get("key");
     if (key && boot.init) localStorage.setItem(`vortex.compose.${key}`, boot.init);
@@ -83,7 +85,7 @@ export function onWindowEvent(handler: (event: WindowEvent) => void): () => void
   if (runningInTauri) {
     const unlisten = listen<WindowEvent>(EVENT, (e) => handler(e.payload));
     return () => {
-      unlisten.then((f) => f());
+      unlisten.then((f) => f(), () => {});
     };
   }
   const onMessage = (e: MessageEvent<WindowEvent>) => handler(e.data);
@@ -159,7 +161,7 @@ export function onCloseRequested(handler: () => Promise<boolean | void>): () => 
     if ((await handler()) === false) event.preventDefault();
   });
   return () => {
-    unlisten.then((f) => f());
+    unlisten.then((f) => f(), () => {});
   };
 }
 
@@ -206,6 +208,6 @@ export function onLinkRequest(handler: (url: string) => void): () => void {
   if (!runningInTauri) return () => {};
   const unlisten = getCurrentWebviewWindow().listen<string>("vortex-link", (e) => handler(e.payload));
   return () => {
-    unlisten.then((f) => f());
+    unlisten.then((f) => f(), () => {});
   };
 }

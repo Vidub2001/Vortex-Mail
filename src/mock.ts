@@ -48,6 +48,33 @@ addFolder("perso", "Factures", "custom");
 addFolder("pro", "Clients", "custom");
 addFolder("pro", "Clients/Client A", "custom");
 
+/** Texte sans balises, en temps linéaire (une expression `<[^>]*>` revenait en arrière, lot L2). */
+function stripTags(html: string, gap = ""): string {
+  let out = "";
+  let at = 0;
+  for (;;) {
+    const open = html.indexOf("<", at);
+    const close = open < 0 ? -1 : html.indexOf(">", open + 1);
+    if (close < 0) return out + html.slice(at);
+    out += html.slice(at, open) + gap;
+    at = close + 1;
+  }
+}
+
+/** HTML sans ses blocs `<script>…</script>`, en temps linéaire. */
+function withoutScripts(html: string): string {
+  const lower = html.toLowerCase();
+  let out = "";
+  let at = 0;
+  for (;;) {
+    const open = lower.indexOf("<script", at);
+    const close = open < 0 ? -1 : lower.indexOf("</script>", open);
+    if (close < 0) return out + html.slice(at);
+    out += html.slice(at, open);
+    at = close + "</script>".length;
+  }
+}
+
 let nextId = 1;
 const messages = new Map<number, Message>();
 function add(folderId: string, fromName: string, fromEmail: string, subject: string, body: string, date: number, seen: boolean, flagged = false, attach = false) {
@@ -55,7 +82,7 @@ function add(folderId: string, fromName: string, fromEmail: string, subject: str
   const id = nextId++;
   messages.set(id, {
     id, folderId, accountId, fromName, fromEmail, subject,
-    preview: body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 140),
+    preview: stripTags(body, " ").replace(/\s+/g, " ").trim().slice(0, 140),
     date, flags: { seen, flagged, answered: false }, hasAttachments: attach,
     to: accounts.find((a) => a.id === accountId)!.email, bodyHtml: body,
     toList: [accounts.find((a) => a.id === accountId)!.email], ccList: [], replyTo: [],
@@ -63,10 +90,10 @@ function add(folderId: string, fromName: string, fromEmail: string, subject: str
     attachments: attach ? [{ index: 0, name: "document.pdf", contentType: "application/pdf", size: 184_320 }] : [],
     imagesAllowed: false,
     bodySimple: body,
-    bodyText: body.replace(/<[^>]*>/g, ""),
+    bodyText: stripTags(body),
   });
 }
-add("perso:INBOX", "Banque Exemple", "alertes@banque.example.com", "Votre relevé d'octobre est disponible", "<p>Bonjour,</p><p>Votre relevé de compte du mois d'octobre est disponible.</p>", h(2), false, false, true);
+add("perso:INBOX", "Banque Exemple", "alertes@banque.example.com", "Votre relevé d'octobre est disponible", "<p>Bonjour,</p><p>Votre relevé de compte du mois d'octobre est disponible.</p><p>Consultez-le sur <a href=\"https://banque-exemple.example.net/connexion\">www.banque.example.com</a>.</p>", h(2), false, false, true);
 add("perso:INBOX", "Marie Dupont", "marie.dupont@example.com", "Repas de dimanche", "<p>Coucou !</p><p>On se retrouve à 12 h 30 dimanche ?</p>", h(26), true, true);
 add("perso:INBOX", "Librairie en ligne", "commandes@livres.example.com", "Votre commande a été expédiée", "<p>Votre commande arrivera sous 48 h.</p>", h(75), true);
 add("perso:Factures", "Opérateur Box", "facture@box.example.com", "Votre facture internet d'octobre", "<p>Facture disponible.</p>", h(400), true, false, true);
@@ -79,12 +106,16 @@ add("pro:INBOX", "Cabinet comptable", "compta@cabinet.example.fr", "Pièces manq
 // Expéditeur usurpé, refusé par DMARC au serveur de réception (lot G1).
 add("perso:INBOX", "Banque Exemple", "securite@banque.example.com", "Action requise : vérifiez votre compte", "<p>Votre compte sera suspendu sous 24 h. Confirmez vos identifiants.</p>", h(50), true);
 messages.get(nextId - 1)!.senderCheck = "dmarc";
+// Message envoyé : son destinataire est proposé à la complétion (lot J13).
+add("pro:Sent", "Moi", "moi@pro.example.com", "Compte rendu de la réunion", "<p>Voici le compte rendu.</p>", h(72), true);
+messages.get(nextId - 1)!.toList = ["jules.bernard@partenaire.example.org"];
 
 function summary(m: Message): MessageSummary {
   const { to, bodyHtml, ...s } = m;
   void to;
   void bodyHtml;
-  return s;
+  // Un UID par message, comme sur un serveur IMAP (repère des règles, audit P8).
+  return { ...s, uid: s.uid ?? m.id };
 }
 const delay = <T,>(v: T) => new Promise<T>((r) => setTimeout(() => r(structuredClone(v)), 30));
 
@@ -156,9 +187,15 @@ export const listMessages = (folderId: string) =>
       .map(summary),
   );
 
+/** Comme le backend (audit P7) : vues du corps calculées à la demande. */
 export function getMessage(id: number): Promise<Message> {
   const m = messages.get(id);
-  return m ? delay(m) : Promise.reject(`introuvable : message #${id}`);
+  return m ? delay({ ...m, bodySimple: "", bodyText: "" }) : Promise.reject(`introuvable : message #${id}`);
+}
+
+export function bodyViews(html: string): Promise<{ simple: string; text: string }> {
+  const simple = withoutScripts(html);
+  return delay({ simple, text: stripTags(simple) });
 }
 
 export async function setSeen(ids: number[], seen: boolean) {
@@ -266,12 +303,12 @@ export async function saveDraft(accountId: string, draft: Draft, replace: number
   messages.set(id, {
     id, folderId: folder.id, accountId, fromName: account.name, fromEmail: account.email,
     subject: draft.subject || "(sans objet)",
-    preview: draft.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 140),
+    preview: stripTags(draft.html, " ").replace(/\s+/g, " ").trim().slice(0, 140),
     date: Math.floor(Date.now() / 1000), flags: { seen: true, flagged: false, answered: false }, hasAttachments: false,
     to: draft.to.join(", "), bodyHtml: draft.html, toList: draft.to, ccList: draft.cc, replyTo: [],
     messageId: `<draft-${id}@example.com>`, references: draft.references ?? "", attachments: [], imagesAllowed: false,
     bodySimple: draft.html,
-    bodyText: draft.html.replace(/<[^>]*>/g, ""),
+    bodyText: stripTags(draft.html),
   });
   drafts.set(id, { draft, accountId });
   serverDrafts((ids) => [...ids.filter((x) => x !== replace), id]);
@@ -419,6 +456,10 @@ export async function pimDelete(id: string) {
   eventList = eventList.filter((e) => e.id !== id);
 }
 
+/** Adresses écartées de la complétion (lot J13). */
+const forgotten = new Set<string>();
+
+/** Comme le backend (lot J13) : contacts, puis destinataires des messages envoyés. */
 export async function suggest(query: string): Promise<Suggestion[]> {
   const q = query.trim().toLowerCase();
   if (!q) return [];
@@ -426,8 +467,14 @@ export async function suggest(query: string): Promise<Suggestion[]> {
   for (const c of contactList)
     for (const e of c.emails)
       if (c.name.toLowerCase().includes(q) || e.toLowerCase().includes(q)) out.push({ name: c.name, email: e, contact: true });
+  const sent = folders.filter((f) => f.role === "sent").map((f) => f.id);
   for (const m of messages.values())
-    if ((m.fromName.toLowerCase().includes(q) || m.fromEmail.toLowerCase().includes(q)) && !out.some((s) => s.email === m.fromEmail))
-      out.push({ name: m.fromName, email: m.fromEmail, contact: false });
+    for (const email of sent.includes(m.folderId) ? [...m.toList, ...m.ccList] : [])
+      if (email.toLowerCase().includes(q) && !forgotten.has(email.toLowerCase()) && !out.some((s) => s.email === email))
+        out.push({ name: "", email, contact: false });
   return out.slice(0, 8);
+}
+
+export async function forgetAddress(email: string): Promise<void> {
+  forgotten.add(email.trim().toLowerCase());
 }

@@ -246,6 +246,12 @@ fn call(method: &str, url: &str, token: &str, body: Option<&Json>) -> Result<Jso
 /// écriture ne remplace pas une modification faite ailleurs entre-temps
 /// (RFC 9110 §13.1.1 ; relecture du 12 novembre, n° 38).
 fn call_ex(method: &str, url: &str, token: &str, body: Option<&Json>, version: &str) -> Result<Json, (u16, String)> {
+    call_sized(method, url, token, body, version).map(|(json, _)| json)
+}
+
+/// Comme `call_ex`, avec la taille de la réponse reçue (pour borner une liste
+/// sans réécrire chaque page en texte, audit P7).
+fn call_sized(method: &str, url: &str, token: &str, body: Option<&Json>, version: &str) -> Result<(Json, usize), (u16, String)> {
     // Le jeton ne part que vers l'API du service, même si une réponse
     // (`@odata.nextLink`) désigne une autre adresse (relecture du 10 novembre 2026).
     if !url.starts_with(&format!("{API}/")) {
@@ -273,10 +279,11 @@ fn call_ex(method: &str, url: &str, token: &str, body: Option<&Json>, version: &
         }
         return Err((response.status, error_reason(response.status, &response.body)));
     }
+    let size = response.body.len();
     if response.body.iter().all(u8::is_ascii_whitespace) {
-        return Ok(Json::Null);
+        return Ok((Json::Null, size));
     }
-    json::parse(&String::from_utf8_lossy(&response.body)).map_err(|e| (response.status, e))
+    json::parse(&String::from_utf8_lossy(&response.body)).map(|json| (json, size)).map_err(|e| (response.status, e))
 }
 
 /// Taille maximale d'un envoi par l'API (message MIME encodé en base64) :
@@ -313,8 +320,8 @@ fn list_all(url: &str, token: &str) -> Result<Vec<Json>, String> {
     let mut next = Some(url.to_string());
     let (mut pages, mut total) = (0, 0usize);
     while let Some(url) = next.take() {
-        let page = call("GET", &url, token, None)?;
-        total = total.saturating_add(page.to_text().len());
+        let (page, size) = call_sized("GET", &url, token, None, "").map_err(|(_, e)| e)?;
+        total = total.saturating_add(size);
         if total > MAX_LIST_BYTES {
             return Err(tr!("liste trop volumineuse renvoyée par Outlook.com").into());
         }

@@ -330,4 +330,11 @@ pub(super) static EN: &[(&str, &str)] = &[
     ("Le certificat de Proton Mail Bridge a changé (empreinte {found}, {pin} attendue). Si vous avez réinstallé ou réinitialisé Bridge, modifiez le compte et acceptez le nouveau certificat ; sinon, ne vous connectez pas.", "The Proton Mail Bridge certificate has changed (fingerprint {found}, {pin} expected). If you reinstalled or reset Bridge, edit the account and accept the new certificate; otherwise, do not connect."),
     ("Proton Mail Bridge ne répond pas sur cet ordinateur (port {port}). Lancez Bridge et connectez-y votre compte Proton, puis réessayez.", "Proton Mail Bridge is not answering on this computer (port {port}). Start Bridge and sign in to your Proton account in it, then try again."),
     ("Seuls les éléments supprimés peuvent être restaurés.", "Only deleted items can be restored."),
+    ("GitHub a répondu {status}", "GitHub answered {status}"),
+    ("Réglage refusé.", "Setting refused."),
+    ("connexion fermée sans réponse", "connection closed without a response"),
+    ("Corps trop volumineux pour cet affichage : {limit} Mo au plus.", "Body too large for this view: {limit} MB at most."),
+    ("dossier d'import absent", "missing import folder"),
+    ("fichier d'import attendu en octets", "import file expected as bytes"),
+    ("bloc HTTP mal terminé", "badly terminated HTTP chunk"),
 ];

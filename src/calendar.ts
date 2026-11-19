@@ -104,7 +104,7 @@ function parseWall(value: string): Wall | null {
 /** Instant (ms) d'une date iCalendar ; une date seule = minuit local. */
 export function instant(w: When): number {
   const p = parseWall(w.value);
-  if (!p) return NaN;
+  if (!p) return Number.NaN;
   if (w.value.length === 8) return new Date(p.y, p.mo, p.d).getTime();
   if (w.value.endsWith("Z")) return Date.UTC(p.y, p.mo, p.d, p.h, p.mi, p.s);
   return wallToInstant(p.y, p.mo, p.d, p.h, p.mi, p.s, zone(w.tzid));
@@ -301,7 +301,7 @@ function* recurrences(e: CalEvent, until: number, from = -Infinity): Generator<n
   // de 300 000 valeurs figerait l'affichage (relecture du modèle de menace).
   const byday: ByDay[] = [...new Set((rule.BYDAY ?? "").split(",").filter((b) => BYDAY_VALUE.test(b)))]
     .slice(0, MAX_BY)
-    .map((b) => ({ n: parseInt(b, 10) || 0, wd: DAYS.indexOf(b.slice(-2)) }));
+    .map((b) => ({ n: Number.parseInt(b, 10) || 0, wd: DAYS.indexOf(b.slice(-2)) }));
   const weekdays = new Set(byday.map((b) => b.wd));
   const bymonthday = intList(rule.BYMONTHDAY, 31);
   const bymonth = intList(rule.BYMONTH, 12, false).map((m) => m - 1);
@@ -367,11 +367,25 @@ function* recurrences(e: CalEvent, until: number, from = -Infinity): Generator<n
     return { days, begins: [y, 0, 1] };
   };
 
-  // Série quotidienne sans nombre d'occurrences : départ près de la période
-  // demandée (sinon, au-delà de 5 000 jours, plus rien ne s'affiche : F13).
+  // Départ près de la période demandée, pour toutes les fréquences (audit P9) :
+  // une série hebdomadaire de 2015 ne parcourt plus 600 semaines à chaque
+  // calcul des rappels, et au-delà de 5 000 pas plus rien ne s'afficherait
+  // (F13). Avec COUNT, il faut décompter les occurrences sautées : seule une
+  // série quotidienne sans restriction (une occurrence par jour) le permet.
   let firstStep = 0;
-  if (freq === "DAILY" && !rule.COUNT && Number.isFinite(from)) {
-    firstStep = Math.max(0, Math.floor((from - startInstant) / (interval * DAY_MS)) - 2);
+  const plainDaily = freq === "DAILY" && !byday.length && !bymonthday.length && !bymonth.length && !bysetpos.length;
+  if (Number.isFinite(from) && from > startInstant && (!rule.COUNT || plainDaily)) {
+    const [fy, fmo] = ymdOf(from);
+    const elapsed =
+      freq === "DAILY"
+        ? (from - startInstant) / DAY_MS
+        : freq === "WEEKLY"
+          ? (from - startInstant) / (7 * DAY_MS)
+          : freq === "MONTHLY"
+            ? (fy - first.y) * 12 + (fmo - first.mo)
+            : fy - first.y;
+    firstStep = Math.max(0, Math.floor(elapsed / interval) - 2);
+    if (rule.COUNT) emitted = Math.min(firstStep, count);
   }
   for (let step = firstStep; step < firstStep + 5000 && emitted < count; step++) {
     const { days, begins } = period(step);

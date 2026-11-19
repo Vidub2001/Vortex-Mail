@@ -47,6 +47,9 @@ aes-gcm = { version = "0.11", default-features = false, features = ["aes", "allo
 # de l'aléa du système ; RSA PKCS #1 v1.5 demande un générateur (celui de `rand`, alimenté par lui).
 getrandom = "0.4"
 rand = "0.10"
+# Clé de contenu et clé d'enveloppe effacées de la mémoire après usage (audit S8) ; déjà
+# dans l'arbre des dépendances (rsa, p256, p384).
+zeroize = "1"
 
 [dev-dependencies]
 proptest = "1"

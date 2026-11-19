@@ -28,6 +28,7 @@ import { api, runningInTauri } from "../api";
 import { t } from "../i18n";
 import { encryptionCheck, parseAddresses, secureFlags, type ComposeAttachment, type ComposeInit } from "../compose";
 import { fileSize } from "../format";
+import { randomId, trimEndOf } from "../text";
 import type { Account, AttachmentInput, Draft, SigningAccount } from "../types";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { FormatToolbar } from "./FormatToolbar";
@@ -56,7 +57,7 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
  */
 function prefixQuotes(root: HTMLElement) {
   [...root.querySelectorAll("blockquote")].reverse().forEach((q) => {
-    const lines = q.innerText.replace(/\n+$/, "").split("\n");
+    const lines = trimEndOf(q.innerText, "\n").split("\n");
     const block = document.createElement("div");
     block.innerText = lines.map((l) => (l.startsWith(">") ? `>${l}` : `> ${l}`)).join("\n");
     q.replaceWith(block);
@@ -91,7 +92,7 @@ function readBase64(file: File): Promise<string> {
       const url = String(reader.result);
       resolve(url.slice(url.indexOf(",") + 1));
     };
-    reader.onerror = () => reject(reader.error);
+    reader.onerror = () => reject(reader.error ?? new Error(t("Lecture du fichier impossible.")));
     reader.readAsDataURL(file);
   });
 }
@@ -187,9 +188,9 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
   const closed = useRef(false);
   const touched = useCallback(() => setChanges((n) => n + 1), []);
   /** Clé de la copie de secours, propre à cette fenêtre de rédaction. */
-  const backupKey = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const backupKey = useRef(`${Date.now()}-${randomId(8)}`);
   /** Clé d'envoi de cette fenêtre (relecture complète n° 9). */
-  const sendKey = useRef(Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join(""));
+  const sendKey = useRef(randomId());
   const editor = useRef<HTMLDivElement>(null);
   const toInput = useRef<HTMLInputElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
@@ -245,7 +246,10 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
     if (toPlain === plain || !el) return;
     if (toPlain) {
       prefixQuotes(el);
-      el.innerText = el.innerText;
+      // Relu puis réécrit en texte : le HTML (mise en forme, citations déjà
+      // préfixées de « > ») devient du texte brut.
+      const plainText = el.innerText;
+      el.innerText = plainText;
     }
     else setHtml(el, textToHtml(el.innerText));
     setPlain(toPlain);
@@ -340,7 +344,7 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
       reference.current = marker;
       if (!closed.current) setStatus(t("Brouillon enregistré à {time}", { time: time() }));
       clearBackup(backupKey.current);
-      notifyMain({ type: "draft" });
+      void notifyMain({ type: "draft" });
       return true;
     } catch (e) {
       const message = String(e);
@@ -465,7 +469,7 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
       subject.trim() !== "" ||
       files.length > 0;
     if (hasContent) setConfirmDiscard(true);
-    else discard();
+    else void discard();
   };
 
   const discard = async () => {
@@ -525,7 +529,7 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      send();
+      void send();
     }
     if (e.key.toLowerCase() === "s" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -555,7 +559,7 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
         if (!hasFiles(e)) return;
         e.preventDefault();
         setDropping(false);
-        addFiles(e.dataTransfer.files);
+        void addFiles(e.dataTransfer.files);
       }}
     >
       <div className="compose-actions">
@@ -613,7 +617,7 @@ export function Compose({ init, accounts, onSend, onDiscard }: Props) {
           multiple
           hidden
           onChange={(e) => {
-            if (e.target.files) addFiles(e.target.files);
+            if (e.target.files) void addFiles(e.target.files);
             e.target.value = "";
           }}
         />

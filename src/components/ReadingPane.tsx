@@ -25,12 +25,14 @@ import {
   PersonWarning20Regular,
   Warning24Regular,
 } from "@fluentui/react-icons";
-import { cloneElement, isValidElement, useEffect, useRef, useState, type ReactNode } from "react";
+import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { mailtoDraft } from "../compose";
 import { api } from "../api";
 import { fileSize, hasRemoteImages, longDate, wrapBody, wrapText } from "../format";
 import { saveGeneral, useGeneral, type BodyMode } from "../general";
+import { needsViews, withViews } from "../body-views";
 import { linkRequest, prepareLinks } from "../links";
+import { preparedPage } from "../safe-html";
 import { onLinkRequest, openComposeWindow } from "../windows";
 import type { Attendee, AttachmentInfo, CalEvent, InvitationAnswer, Message, MyAddress } from "../types";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -118,13 +120,18 @@ function InvitationBar({
   const [send, setSend] = useState(true);
   const [round, setRound] = useState(0);
   const [busy, setBusy] = useState(false);
+  /** Autre organisateur que celui de l'agenda (audit S6), et confirmation demandée. */
+  const [otherOrganizer, setOtherOrganizer] = useState<{ theirs: string; ours: string } | null>(null);
+  const [confirming, setConfirming] = useState(false);
   useEffect(() => {
     let alive = true;
     setKind(null);
+    setConfirming(false);
     planInvitation(message, ics)
       .then((p) => {
         if (!alive) return;
         setKind(p.kind);
+        setOtherOrganizer(p.otherOrganizer ?? null);
         const mine = p.invitation.addresses ?? [];
         setAnswerable(canAnswer(p) || mine.some((a) => a.answer));
         setAddresses(mine);
@@ -201,6 +208,7 @@ function InvitationBar({
           {answered ? said[answered] : t("En attente de votre réponse")}
           {!answered && kind === "update" && <span className="invitation-note"> · {t("Cette invitation modifie un rendez-vous de votre agenda.")}</span>}
         </div>
+        {otherOrganizer && <div className="invitation-warning">{organizerWarning(otherOrganizer)}</div>}
         <AnswerAs addresses={addresses} value={me?.account ?? ""} onChange={setAsAccount} disabled={busy} />
         <div className="invitation-actions">
           <span className="invitation-ask">{t("Participer ?")}</span>
@@ -228,7 +236,10 @@ function InvitationBar({
   return (
     <div className="invitation-bar">
       <CalendarLtr20Regular />
-      <span>{text}</span>
+      <span>
+        {text}
+        {otherOrganizer && <span className="invitation-warning"> {organizerWarning(otherOrganizer)}</span>}
+      </span>
       {action && (
         <Button
           size="small"
@@ -236,6 +247,11 @@ function InvitationBar({
           disabled={busy}
           icon={busy ? <Spinner size="extra-tiny" /> : undefined}
           onClick={async () => {
+            // Autre organisateur : un premier clic ne fait que demander confirmation.
+            if (otherOrganizer && !confirming) {
+              setConfirming(true);
+              return;
+            }
             setBusy(true);
             try {
               await onApply(message, ics);
@@ -245,10 +261,18 @@ function InvitationBar({
             }
           }}
         >
-          {action}
+          {otherOrganizer && confirming ? t("Confirmer quand même") : action}
         </Button>
       )}
     </div>
+  );
+}
+
+/** Avertissement d'une invitation venue d'un autre organisateur (audit S6). */
+function organizerWarning(o: { theirs: string; ours: string }): string {
+  return t(
+    "Attention : envoyé au nom de {theirs}, alors que l'organisateur de ce rendez-vous dans votre agenda est {ours}.",
+    o,
   );
 }
 
@@ -266,7 +290,6 @@ export function ReadingPane({
   onCheckSignature,
 }: Props) {
   const { bodyMode } = useGeneral(); // redessine aussi si le format de date change
-  const frame = useRef<HTMLIFrameElement>(null);
   /** Lien trompeur en attente de confirmation. */
   const [suspect, setSuspect] = useState<{ url: string; shown: string; real: string } | null>(null);
   const accountRef = useRef<string | null>(null);
@@ -294,11 +317,38 @@ export function ReadingPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [examine?.id]);
 
-  /** Corps chargé : liens réécrits pour s'ouvrir hors du volet (lot 4b). */
-  const onBodyLoad = () => {
-    const doc = frame.current?.contentDocument;
-    if (doc) prepareLinks(doc);
-  };
+  /**
+   * Page du corps, liens réécrits pour s'ouvrir hors du volet (lot 4b) avant
+   * l'affichage (audit S2) : aucun lien d'origine n'est cliquable, même un
+   * instant. Pas de seconde passe au chargement : `linkAction` désactive les
+   * liens internes, elle casserait les liens suspects et `mailto` déjà réécrits.
+   */
+  // Corps nettoyé et texte demandés seulement pour les modes qui les
+  // affichent (audit P7) ; l'ancien message n'est jamais montré à la place.
+  const needs = !!message && needsViews(message, bodyMode);
+  const [viewed, setViewed] = useState<{ of: Message; shown: Message | string } | null>(null);
+  useEffect(() => {
+    if (!message || !needs) return;
+    let live = true;
+    withViews(message).then(
+      (m) => live && setViewed({ of: message, shown: m }),
+      (e) => live && setViewed({ of: message, shown: String(e) }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [message, needs]);
+  const ready = !needs ? message : viewed?.of === message ? viewed.shown : null;
+
+  const page = useMemo(() => {
+    if (!message || ready === null) return "";
+    if (typeof ready === "string") return preparedPage(wrapText(ready, dark), prepareLinks);
+    const raw =
+      bodyMode === "text"
+        ? wrapText(ready.bodyText, dark)
+        : wrapBody(bodyMode === "simple" ? ready.bodySimple : ready.bodyHtml, ready.imagesAllowed, dark);
+    return preparedPage(raw, prepareLinks);
+  }, [message, ready, bodyMode, dark]);
 
   const BODY_MODES: { value: BodyMode; label: string }[] = [
     { value: "original", label: t("Original") },
@@ -494,17 +544,13 @@ export function ReadingPane({
         par le backend (lien ouvert dans le navigateur externe).
       */}
       <iframe
-        ref={frame}
         key={`${message.id}-${message.imagesAllowed}-${dark}-${bodyMode}`}
         className="reading-body"
         title={t("Contenu du message")}
         sandbox="allow-same-origin allow-popups"
-        srcDoc={/* nosemgrep: vortex-raw-html-sink -- corps du mail dans l'iframe sans script : texte échappé, HTML simplifié par ammonia, ou Original sans meta, link ni base, comme Thunderbird */
-          bodyMode === "text"
-            ? wrapText(message.bodyText, dark)
-            : wrapBody(bodyMode === "simple" ? message.bodySimple : message.bodyHtml, message.imagesAllowed, dark)
+        srcDoc={/* nosemgrep: vortex-raw-html-sink -- corps du mail dans l'iframe sans script : texte échappé, HTML simplifié par ammonia, ou Original sans meta, link ni base, comme Thunderbird ; liens réécrits par preparedPage */
+          page
         }
-        onLoad={onBodyLoad}
       />
       {suspect && (
         <Dialog open onOpenChange={(_, d) => !d.open && setSuspect(null)}>

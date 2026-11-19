@@ -36,6 +36,7 @@ import { t } from "../i18n";
 import { rangeLabel } from "../invitation";
 import { answerOf, cleanDescription, invitedAccounts, isInvited, meetingLink } from "../invites";
 import { describeRecurrence } from "../recurrence";
+import { trimEndOf } from "../text";
 import type { Account, CalEvent, InvitationAnswer, PimCollection } from "../types";
 import { AnswerAs, GuestList } from "./Guests";
 import { EventDelete, type EventDraft } from "./EventDialog";
@@ -60,7 +61,7 @@ function Linked({ text }: { text: string }) {
   const parts: ReactNode[] = [];
   let last = 0;
   for (const found of text.matchAll(URL_PATTERN)) {
-    const url = found[0].replace(/[).,;]+$/, "");
+    const url = trimEndOf(found[0], ").,;");
     const at = found.index ?? 0;
     parts.push(text.slice(last, at));
     parts.push(

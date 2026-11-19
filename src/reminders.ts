@@ -148,7 +148,7 @@ export function useReminders(version: number, notify: (title: string, body?: str
         .catch(() => {
           // agenda illisible : nouvel essai au prochain rechargement
         });
-    reload().then(check);
+    void reload().then(check);
     const timer = window.setInterval(reload, RELOAD_MS);
     return () => {
       alive = false;

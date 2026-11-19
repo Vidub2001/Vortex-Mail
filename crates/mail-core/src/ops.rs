@@ -6,6 +6,9 @@
 //! source **qu'une fois la copie confirmée**. Au pire, un incident laisse un
 //! doublon, jamais une perte.
 
+use std::collections::HashSet;
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
 use crate::backend::MailBackend;
 use crate::error::{MailError, Result};
 use crate::model::{FolderId, FolderRole, MessageId, RawMessage};
@@ -64,6 +67,9 @@ pub struct Journal {
     keys: Vec<u64>,
     next_key: u64,
     store: Option<Box<dyn JournalStore>>,
+    /// Opérations en cours dans un appel (déplacement ou reprise) : aucune
+    /// autre ne les touche pendant ce temps (audit P4, journal partagé).
+    busy: HashSet<u64>,
 }
 
 impl std::fmt::Debug for Journal {
@@ -78,7 +84,11 @@ impl Journal {
     pub fn with_store(store: Box<dyn JournalStore>, unfinished: Vec<(u64, JournalEntry)>) -> Self {
         let next_key = unfinished.iter().map(|(k, _)| k + 1).max().unwrap_or(1);
         let (keys, entries) = unfinished.into_iter().unzip();
-        Self { entries, keys, next_key, store: Some(store) }
+        Self { entries, keys, next_key, store: Some(store), busy: HashSet::new() }
+    }
+
+    fn index_of(&self, key: u64) -> Option<usize> {
+        self.keys.iter().position(|&k| k == key)
     }
 
     fn persist(&mut self, index: usize) {
@@ -95,23 +105,21 @@ impl Journal {
         }
     }
 
-    fn push(&mut self, entry: JournalEntry) -> usize {
+    fn push(&mut self, entry: JournalEntry) -> u64 {
+        let key = self.next_key.max(1);
         self.entries.push(entry);
-        self.keys.push(self.next_key.max(1));
-        self.next_key = self.next_key.max(1) + 1;
-        let index = self.entries.len() - 1;
-        self.persist(index);
-        index
+        self.keys.push(key);
+        self.next_key = key + 1;
+        self.persist(self.entries.len() - 1);
+        key
     }
 
-    fn set(&mut self, index: usize, state: JournalState) {
-        let copied_before = matches!(self.entries.get(index).map(|e| &e.state), Some(JournalState::Copied { .. }));
-        if let Some(e) = self.entries.get_mut(index) {
-            e.state = state;
-        }
-        let failed = matches!(self.entries.get(index).map(|e| &e.state), Some(JournalState::Failed(_)));
-        if failed && !copied_before {
-            if let (Some(store), Some(&key)) = (self.store.as_mut(), self.keys.get(index)) {
+    fn set_state(&mut self, key: u64, state: JournalState) {
+        let Some(index) = self.index_of(key) else { return };
+        let copied_before = matches!(self.entries[index].state, JournalState::Copied { .. });
+        self.entries[index].state = state;
+        if matches!(self.entries[index].state, JournalState::Failed(_)) && !copied_before {
+            if let Some(store) = self.store.as_mut() {
                 store.remove(key);
             }
             return;
@@ -119,10 +127,9 @@ impl Journal {
         self.persist(index);
     }
 
-    fn note_message_id(&mut self, index: usize, message_id: Option<String>) {
-        if let Some(e) = self.entries.get_mut(index) {
-            e.message_id = message_id;
-        }
+    fn set_message_id(&mut self, key: u64, message_id: Option<String>) {
+        let Some(index) = self.index_of(key) else { return };
+        self.entries[index].message_id = message_id;
         self.persist(index);
     }
 
@@ -137,17 +144,139 @@ impl Journal {
         self.entries.iter().filter(|e| matches!(e.state, JournalState::Pending | JournalState::Copied { .. }))
     }
 
-    /// Oublie les opérations terminées (le journal ne grossit pas indéfiniment).
+    /// Oublie les opérations terminées ou abandonnées (le journal ne grossit
+    /// pas indéfiniment ; audit B8 : les échecs restaient en mémoire).
     fn prune(&mut self) {
         let mut i = 0;
         while i < self.entries.len() {
-            if matches!(self.entries[i].state, JournalState::Done { .. }) {
+            let finished = matches!(self.entries[i].state, JournalState::Done { .. } | JournalState::Failed(_));
+            if finished && !self.busy.contains(&self.keys[i]) {
                 self.entries.remove(i);
                 self.keys.remove(i);
             } else {
                 i += 1;
             }
         }
+    }
+}
+
+/// Accès au journal pendant un déplacement : exclusif (`&mut Journal`) ou
+/// partagé (`SharedJournal`), où le verrou n'est tenu que le temps d'une
+/// écriture, jamais pendant le réseau (audit P4 : un long déplacement entre
+/// comptes bloquait toute suppression et tout déplacement des autres comptes).
+pub trait JournalAccess {
+    /// Commence une opération et la réserve ; `None` si ce message a déjà un
+    /// déplacement inachevé (en cours, ou à reprendre) : pas de double copie.
+    fn begin(&mut self, entry: JournalEntry) -> Option<u64>;
+    /// Nouvelle étape d'une opération.
+    fn set(&mut self, key: u64, state: JournalState);
+    /// `Message-ID` du message, noté avant la copie.
+    fn note_message_id(&mut self, key: u64, message_id: Option<String>);
+    /// Le `Message-ID` de l'opération est-il connu ?
+    fn has_message_id(&mut self, key: u64) -> bool;
+    /// Opérations à reprendre que personne d'autre ne traite, réservées.
+    fn claim_unfinished(&mut self) -> Vec<(u64, JournalEntry)>;
+    /// Fin du traitement d'une opération réservée.
+    fn release(&mut self, key: u64);
+    /// Oublie les opérations terminées ou abandonnées.
+    fn prune(&mut self);
+    /// Ce message a-t-il un déplacement inachevé ?
+    fn is_moving(&mut self, source: MessageId) -> bool;
+    /// Nombre d'opérations inachevées.
+    fn unfinished_count(&mut self) -> usize;
+}
+
+impl JournalAccess for Journal {
+    fn begin(&mut self, entry: JournalEntry) -> Option<u64> {
+        if self.is_moving(entry.source_id) {
+            return None;
+        }
+        let key = self.push(entry);
+        self.busy.insert(key);
+        Some(key)
+    }
+
+    fn set(&mut self, key: u64, state: JournalState) {
+        self.set_state(key, state);
+    }
+
+    fn note_message_id(&mut self, key: u64, message_id: Option<String>) {
+        self.set_message_id(key, message_id);
+    }
+
+    fn has_message_id(&mut self, key: u64) -> bool {
+        self.index_of(key).is_some_and(|i| self.entries[i].message_id.is_some())
+    }
+
+    fn claim_unfinished(&mut self) -> Vec<(u64, JournalEntry)> {
+        let claimed: Vec<(u64, JournalEntry)> = self
+            .keys
+            .iter()
+            .zip(&self.entries)
+            .filter(|(key, e)| matches!(e.state, JournalState::Pending | JournalState::Copied { .. }) && !self.busy.contains(*key))
+            .map(|(&key, e)| (key, e.clone()))
+            .collect();
+        self.busy.extend(claimed.iter().map(|(key, _)| *key));
+        claimed
+    }
+
+    fn release(&mut self, key: u64) {
+        self.busy.remove(&key);
+    }
+
+    fn prune(&mut self) {
+        Journal::prune(self);
+    }
+
+    fn is_moving(&mut self, source: MessageId) -> bool {
+        self.unfinished().any(|e| e.source_id == source)
+    }
+
+    fn unfinished_count(&mut self) -> usize {
+        self.unfinished().count()
+    }
+}
+
+/// Journal partagé entre plusieurs déplacements simultanés : chaque accès
+/// prend le verrou un instant (audit P4).
+#[derive(Debug, Clone, Copy)]
+pub struct SharedJournal<'a>(pub &'a Mutex<Journal>);
+
+impl SharedJournal<'_> {
+    fn lock(&self) -> MutexGuard<'_, Journal> {
+        // Journal modifié une opération à la fois, chaque fois d'un bloc :
+        // sûr après une panique (même règle que les verrous du routeur).
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl JournalAccess for SharedJournal<'_> {
+    fn begin(&mut self, entry: JournalEntry) -> Option<u64> {
+        self.lock().begin(entry)
+    }
+    fn set(&mut self, key: u64, state: JournalState) {
+        self.lock().set(key, state);
+    }
+    fn note_message_id(&mut self, key: u64, message_id: Option<String>) {
+        self.lock().note_message_id(key, message_id);
+    }
+    fn has_message_id(&mut self, key: u64) -> bool {
+        self.lock().has_message_id(key)
+    }
+    fn claim_unfinished(&mut self) -> Vec<(u64, JournalEntry)> {
+        self.lock().claim_unfinished()
+    }
+    fn release(&mut self, key: u64) {
+        self.lock().release(key);
+    }
+    fn prune(&mut self) {
+        JournalAccess::prune(&mut *self.lock());
+    }
+    fn is_moving(&mut self, source: MessageId) -> bool {
+        self.lock().is_moving(source)
+    }
+    fn unfinished_count(&mut self) -> usize {
+        self.lock().unfinished_count()
     }
 }
 
@@ -207,9 +336,9 @@ impl MoveReport {
 /// # Errors
 ///
 /// Destination inexistante ([`MailError::InvalidTarget`]).
-pub fn move_messages<B: MailBackend + ?Sized>(
+pub fn move_messages<B: MailBackend + ?Sized, J: JournalAccess + ?Sized>(
     backend: &mut B,
-    journal: &mut Journal,
+    journal: &mut J,
     ids: &[MessageId],
     target: &str,
 ) -> Result<MoveReport> {
@@ -281,34 +410,59 @@ fn fetch_for_copy<B: MailBackend + ?Sized>(backend: &mut B, id: MessageId) -> Re
 }
 
 /// Copie fiable d'un message vers un autre compte, puis suppression de la source.
-fn move_across_accounts<B: MailBackend + ?Sized>(backend: &mut B, journal: &mut Journal, id: MessageId, target: &str) -> Result<MessageId> {
-    let entry =
-        journal.push(JournalEntry { source_id: id, target_folder: target.to_string(), message_id: None, state: JournalState::Pending });
+fn move_across_accounts<B: MailBackend + ?Sized, J: JournalAccess + ?Sized>(
+    backend: &mut B,
+    journal: &mut J,
+    id: MessageId,
+    target: &str,
+) -> Result<MessageId> {
+    let entry = JournalEntry { source_id: id, target_folder: target.to_string(), message_id: None, state: JournalState::Pending };
+    // Déjà en cours ou à reprendre (autre fenêtre, double clic, reprise) : pas
+    // de seconde copie (audit P4 : les déplacements ne sont plus sérialisés).
+    let Some(key) = journal.begin(entry) else {
+        let reason = crate::lang::pick(
+            "déplacement de ce message déjà en cours",
+            "this message is already being moved",
+            "este mensaje ya se está trasladando",
+        );
+        return Err(MailError::Backend(reason.into()));
+    };
+    let result = copy_then_remove(backend, journal, key, id, target);
+    journal.release(key);
+    result
+}
 
+fn copy_then_remove<B: MailBackend + ?Sized, J: JournalAccess + ?Sized>(
+    backend: &mut B,
+    journal: &mut J,
+    key: u64,
+    id: MessageId,
+    target: &str,
+) -> Result<MessageId> {
     // 1. Lecture du message brut avec ses flags et sa date d'origine.
     let raw = fetch_for_copy(backend, id).inspect_err(|e| {
-        journal.set(entry, JournalState::Failed(e.to_string()));
+        journal.set(key, JournalState::Failed(e.to_string()));
     })?;
     // Noté avant la copie : à la reprise, il dira si la copie a déjà eu lieu.
-    journal.note_message_id(entry, crate::compose::header_value(&raw.bytes, "Message-ID"));
+    journal.note_message_id(key, crate::compose::header_value(&raw.bytes, "Message-ID"));
 
     // 2. Dépôt dans le compte cible. Coupure pendant le dépôt : la copie a pu
     //    arriver. Si son `Message-ID` est connu, l'entrée reste « en cours » :
     //    la reprise la cherchera avant de la refaire, sans doublon (relecture
     //    complète n° 18).
     let new_id = backend.append(target, &raw).inspect_err(|e| {
-        let unsure = matches!(e, MailError::Network(_)) && journal.entries.get(entry).is_some_and(|x| x.message_id.is_some());
+        let unsure = matches!(e, MailError::Network(_)) && journal.has_message_id(key);
         if !unsure {
-            journal.set(entry, JournalState::Failed(e.to_string()));
+            journal.set(key, JournalState::Failed(e.to_string()));
         }
     })?;
-    journal.set(entry, JournalState::Copied { new_id });
+    journal.set(key, JournalState::Copied { new_id });
 
     // 3. Suppression de la source, uniquement maintenant que la copie existe.
     //    En cas d'échec, l'entrée reste « copiée » : la reprise (`resume_moves`)
     //    ne supprimera que la source, sans jamais recopier (relecture Y2).
     backend.remove(id)?;
-    journal.set(entry, JournalState::Done { new_id });
+    journal.set(key, JournalState::Done { new_id });
 
     Ok(new_id)
 }
@@ -320,9 +474,9 @@ fn move_across_accounts<B: MailBackend + ?Sized>(backend: &mut B, journal: &mut 
 ///
 /// Seulement si un déplacement entier échoue ; un message sans dossier de ce
 /// rôle dans son compte est listé dans [`MoveReport::failed`].
-pub fn move_to_role<B: MailBackend + ?Sized>(
+pub fn move_to_role<B: MailBackend + ?Sized, J: JournalAccess + ?Sized>(
     backend: &mut B,
-    journal: &mut Journal,
+    journal: &mut J,
     ids: &[MessageId],
     role: FolderRole,
 ) -> Result<MoveReport> {
@@ -360,14 +514,12 @@ pub fn move_to_role<B: MailBackend + ?Sized>(
 /// - source introuvable et copie absente : rien à faire, l'entrée est oubliée.
 ///
 /// Une opération qui échoue encore (réseau toujours absent) reste au journal.
-pub fn resume_moves<B: MailBackend + ?Sized>(backend: &mut B, journal: &mut Journal) -> MoveReport {
+pub fn resume_moves<B: MailBackend + ?Sized, J: JournalAccess + ?Sized>(backend: &mut B, journal: &mut J) -> MoveReport {
     let mut report = MoveReport::default();
-    let pending: Vec<usize> = (0..journal.entries.len())
-        .filter(|&i| matches!(journal.entries[i].state, JournalState::Pending | JournalState::Copied { .. }))
-        .collect();
-    for index in pending {
-        let entry = journal.entries[index].clone();
+    // Réservées : une autre reprise lancée en même temps ne les refait pas.
+    for (key, entry) in journal.claim_unfinished() {
         let id = entry.source_id;
+        let mut copied = matches!(entry.state, JournalState::Copied { .. });
         let copy = match entry.state {
             JournalState::Copied { new_id } => Ok(Some(new_id)),
             _ => match entry.message_id.as_deref() {
@@ -378,7 +530,8 @@ pub fn resume_moves<B: MailBackend + ?Sized>(backend: &mut B, journal: &mut Jour
         let result = match copy {
             Err(e) => Err(e),
             Ok(Some(new_id)) => {
-                journal.set(index, JournalState::Copied { new_id });
+                journal.set(key, JournalState::Copied { new_id });
+                copied = true;
                 match backend.remove(id) {
                     Ok(()) | Err(MailError::NotFound(_)) => Ok(new_id),
                     Err(e) => Err(e),
@@ -387,32 +540,71 @@ pub fn resume_moves<B: MailBackend + ?Sized>(backend: &mut B, journal: &mut Jour
             Ok(None) => match fetch_for_copy(backend, id) {
                 Err(MailError::NotFound(_)) => {
                     // Source disparue, copie introuvable : rien à reprendre.
-                    journal.set(index, JournalState::Failed("message introuvable".into()));
+                    journal.set(key, JournalState::Failed("message introuvable".into()));
+                    journal.release(key);
                     continue;
                 }
                 Err(e) => Err(e),
                 Ok(raw) => backend.append(&entry.target_folder, &raw).and_then(|new_id| {
-                    journal.set(index, JournalState::Copied { new_id });
+                    journal.set(key, JournalState::Copied { new_id });
+                    copied = true;
                     backend.remove(id).map(|()| new_id)
                 }),
             },
         };
         match result {
             Ok(new_id) => {
-                journal.set(index, JournalState::Done { new_id });
+                journal.set(key, JournalState::Done { new_id });
                 report.moved.push(MovedMessage { old_id: id, new_id });
                 report.cross_account += 1;
             }
             Err(e) => {
                 // Refus définitif avant toute copie : l'entrée est close, sinon
                 // elle serait reprise en vain à chaque passage.
-                if !matches!(e, MailError::Network(_)) && matches!(journal.entries[index].state, JournalState::Pending) {
-                    journal.set(index, JournalState::Failed(e.to_string()));
+                if !matches!(e, MailError::Network(_)) && !copied {
+                    journal.set(key, JournalState::Failed(e.to_string()));
                 }
                 report.failed.push(FailedMove { id, reason: e.to_string() });
             }
         }
+        journal.release(key);
     }
     journal.prune();
     report
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn p4_journal_partage_sans_double_deplacement() {
+        let shared = Mutex::new(Journal::default());
+        let entry = JournalEntry { source_id: 1, target_folder: "b:INBOX".into(), message_id: None, state: JournalState::Pending };
+        let key = SharedJournal(&shared).begin(entry.clone()).expect("premier déplacement");
+        assert!(SharedJournal(&shared).begin(entry.clone()).is_none(), "même message : refusé pendant le premier");
+        assert!(SharedJournal(&shared).claim_unfinished().is_empty(), "une reprise ne touche pas un déplacement en cours");
+        SharedJournal(&shared).release(key);
+        // Interrompu (coupure) : la reprise le réserve une seule fois.
+        assert_eq!(SharedJournal(&shared).claim_unfinished().len(), 1);
+        assert!(SharedJournal(&shared).claim_unfinished().is_empty(), "déjà réservé par la première reprise");
+        assert!(SharedJournal(&shared).begin(entry).is_none(), "toujours à reprendre : pas de nouvelle copie");
+        SharedJournal(&shared).set(key, JournalState::Done { new_id: 2 });
+        SharedJournal(&shared).release(key);
+        JournalAccess::prune(&mut SharedJournal(&shared));
+        assert_eq!(SharedJournal(&shared).unfinished_count(), 0);
+        assert_eq!(shared.lock().unwrap().entries().len(), 0, "opération finie oubliée");
+    }
+
+    #[test]
+    fn b8_echecs_oublies_avec_les_operations_finies() {
+        let mut journal = Journal::default();
+        let entry = |state| JournalEntry { source_id: 1, target_folder: "b:INBOX".into(), message_id: None, state };
+        journal.push(entry(JournalState::Done { new_id: 2 }));
+        journal.push(entry(JournalState::Failed("refusé".into())));
+        journal.push(entry(JournalState::Pending));
+        journal.prune();
+        assert_eq!(journal.entries.len(), 1, "seule l'opération à reprendre reste");
+        assert_eq!(journal.unfinished().count(), 1);
+    }
 }

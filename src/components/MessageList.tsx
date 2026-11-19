@@ -8,7 +8,6 @@ import {
   MenuPopover,
   MenuTrigger,
   SearchBox,
-  Spinner,
   Text,
   ToolbarButton,
 } from "@fluentui/react-components";
@@ -33,6 +32,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import type { Account, Folder, MessageSummary } from "../types";
 import { isUnified } from "../unified";
 import { t } from "../i18n";
+import { VortexSpinner } from "./VortexSpinner";
 
 export type SortMode = "date-desc" | "date-asc" | "from" | "subject";
 export type FilterMode = "all" | "unread" | "flagged" | "attachments";
@@ -157,6 +157,9 @@ const Row = memo(function Row({
     <div
       id={rowId(m.id)}
       role="option"
+      // Focus porté par la liste (aria-activedescendant) : la ligne est
+      // focalisable par programme, hors de l'ordre de tabulation.
+      tabIndex={-1}
       aria-selected={selected}
       className={classes}
       draggable
@@ -188,12 +191,15 @@ const Row = memo(function Row({
             {m.flags.flagged && <Flag16Filled className="flag" />}
             <span className="msg-date">{listDate(m.date)}</span>
           </span>
-          {/* Actions au survol, à la place de la date. */}
-          <span className="msg-actions" onClick={(e) => e.stopPropagation()}>
+          {/* Actions au survol, à la place de la date ; un clic n'y sélectionne pas la ligne. */}
+          <span className="msg-actions">
             <button
               type="button"
               title={m.flags.seen ? t("Marquer comme non lu") : t("Marquer comme lu")}
-              onClick={() => actions.quickSeen(m)}
+              onClick={(e) => {
+                e.stopPropagation();
+                actions.quickSeen(m);
+              }}
             >
               {m.flags.seen ? <MailUnread16Regular /> : <MailRead16Regular />}
             </button>
@@ -201,11 +207,22 @@ const Row = memo(function Row({
               type="button"
               className={m.flags.flagged ? "on" : undefined}
               title={m.flags.flagged ? t("Retirer l'indicateur") : t("Indicateur")}
-              onClick={() => actions.quickFlag(m)}
+              onClick={(e) => {
+                e.stopPropagation();
+                actions.quickFlag(m);
+              }}
             >
               {m.flags.flagged ? <Flag16Filled /> : <Flag16Regular />}
             </button>
-            <button type="button" className="danger" title={t("Supprimer")} onClick={() => actions.quickDelete(m)}>
+            <button
+              type="button"
+              className="danger"
+              title={t("Supprimer")}
+              onClick={(e) => {
+                e.stopPropagation();
+                actions.quickDelete(m);
+              }}
+            >
               <Delete16Regular />
             </button>
           </span>
@@ -390,7 +407,7 @@ export function MessageList(p: Props) {
                 ? t("{n} trouvés", { n: p.messages.length })
                 : t("{n} trouvé", { n: p.messages.length })}
           </span>
-          {p.searchMode.searching && <Spinner className="list-sync" size="extra-tiny" aria-label={t("Recherche")} />}
+          {p.searchMode.searching && <VortexSpinner className="list-sync" size={14} aria-label={t("Recherche")} />}
           <button type="button" className="search-close" onClick={p.onCloseSearch} title={t("Revenir au dossier (Échap)")}>
             <Dismiss16Regular />
           </button>
@@ -493,10 +510,10 @@ export function MessageList(p: Props) {
         }}
       >
         {!searching && p.loading && p.messages.length === 0 && (
-          <Spinner className="list-loading" size="small" label={t("Synchronisation…")} />
+          <VortexSpinner className="list-loading" size={22} label={t("Synchronisation…")} />
         )}
         {searching && p.searchMode?.searching && p.messages.length === 0 && (
-          <Spinner className="list-loading" size="small" label={t("Recherche dans tous les dossiers…")} />
+          <VortexSpinner className="list-loading" size={22} label={t("Recherche dans tous les dossiers…")} />
         )}
         {(searching ? !p.searchMode?.searching : !p.loading) && p.messages.length === 0 && (
           <div className="list-empty">

@@ -52,7 +52,7 @@ Las versiones se compilan a partir de este repositorio con GitHub Actions. Cada 
 
 Los archivos de Windows aún no están firmados: Windows puede mostrar un aviso en la primera instalación.
 
-> **Estado:** versión 0.3.4, usada a diario por su autor. Se agradecen los comentarios y los avisos de errores.
+> **Estado:** versión 0.3.5, usada a diario por su autor. Se agradecen los comentarios y los avisos de errores.
 
 ## Funciones
 
@@ -96,7 +96,8 @@ Los archivos de Windows aún no están firmados: Windows puede mostrar un aviso 
   eliminan), dos reglas que se devuelven un mensaje ya no lo hacen circular, y los recordatorios
   perdidos con la aplicación cerrada se resumen al iniciar.
 - Sin conexión: caché local completa; las acciones se ponen en cola y se repiten cuando vuelve la
-  red.
+  red. La descarga del contenido de los mensajes se ajusta cuenta por cuenta.
+- Aviso de nueva versión, como mucho una vez al día (desactivable en Configuración › General).
 
 **Calendario y contactos**
 - Gmail (OAuth2 de Google, CalDAV/CardDAV), Outlook.com, Mailo/Netcourrier y cualquier servidor
@@ -271,14 +272,17 @@ fuzz/, tests/            fuzzing, corpus de no regresión, pruebas de la interfa
   zonas horarias del calendario), fuzzing, modelo de amenazas, reglas de código Rust.~~
 - ~~Funcionamiento en segundo plano: área de notificación, reglas y notificaciones, recordatorios
   perdidos.~~
+- ~~Continuación de la auditoría de noviembre de 2026: buzones grandes más rápidos, operaciones
+  agrupadas y en segundo plano, agenda y contactos más ligeros, búsqueda en los servidores con
+  límite de tiempo, sugerencias de direcciones a las que se ha escrito, refuerzos de seguridad.~~
 
 </details>
 
 Próximamente:
-1. Continuación de la auditoría de noviembre de 2026: buzones grandes más rápidos (lista por
-   páginas, operaciones agrupadas), agenda y contactos más ligeros, refuerzos de seguridad.
-2. Cuentas profesionales y educativas de O365, si surge la necesidad (hoy: solo cuentas personales
+1. Cuentas profesionales y educativas de O365, si surge la necesidad (hoy: solo cuentas personales
    de Outlook.com / O365).
+2. Actualización automática, si surge la necesidad (hoy: aviso de nueva versión, con enlace a su
+   página).
 
 ## Limitaciones conocidas
 

@@ -76,6 +76,7 @@ pub fn parse_address(s: &str) -> (String, String) {
 /// Texte d'aperçu pour la liste : balises retirées, espaces compactés, tronqué.
 #[must_use]
 pub fn preview(html: &str, max_chars: usize) -> String {
+    let html = without_hidden_blocks(html);
     let mut text = String::with_capacity(html.len());
     let mut in_tag = false;
     for c in html.chars() {
@@ -104,6 +105,42 @@ pub fn preview(html: &str, max_chars: usize) -> String {
         cut.push('…');
         cut
     }
+}
+
+/// Éléments dont le contenu n'est jamais affiché : leur texte n'a rien à faire
+/// dans un aperçu (« `table * { line-height: normal; …` » sous l'objet d'un
+/// message HTML, vu le 18 novembre 2026).
+const HIDDEN_BLOCKS: [&str; 4] = ["head", "style", "script", "title"];
+
+/// HTML sans le contenu des éléments de `HIDDEN_BLOCKS`, en un seul passage.
+/// Un bloc sans fin (début de message coupé) est retiré jusqu'au bout.
+fn without_hidden_blocks(html: &str) -> String {
+    // Minuscules ASCII : mêmes positions d'octets que le texte d'origine.
+    let lower = html.to_ascii_lowercase();
+    let mut out = String::with_capacity(html.len());
+    let mut i = 0;
+    while let Some(found) = lower[i..].find('<') {
+        let start = i + found;
+        let after = &lower[start + 1..];
+        // Nom complet seulement : `<header>` n'est pas `<head>`.
+        let block = HIDDEN_BLOCKS.into_iter().find(|name| {
+            after.starts_with(name) && after[name.len()..].chars().next().is_none_or(|c| c == '>' || c == '/' || c.is_ascii_whitespace())
+        });
+        if let Some(name) = block {
+            out.push_str(&html[i..start]);
+            out.push(' ');
+            let close = format!("</{name}");
+            i = lower[start + 1..].find(&close).map_or(html.len(), |end| {
+                let from = start + 1 + end;
+                lower[from..].find('>').map_or(html.len(), |gt| from + gt + 1)
+            });
+        } else {
+            out.push_str(&html[i..=start]);
+            i = start + 1;
+        }
+    }
+    out.push_str(&html[i..]);
+    out
 }
 
 /// Construit un message RFC 822 simple (corps HTML), utilisé par les données de démo.
@@ -148,5 +185,16 @@ mod tests {
     fn preview_strips_and_truncates() {
         assert_eq!(preview("<p>Bonjour&nbsp;<b>toi</b></p>\n<p>ça va ?</p>", 100), "Bonjour toi ça va ?");
         assert_eq!(preview("abcdef", 3), "abc…");
+    }
+
+    #[test]
+    fn preview_without_style_or_script() {
+        let html = "<html><head><title>Annonce</title><style type=\"text/css\">table * { line-height: normal; }</style></head>\
+                    <body><header>En-tête</header><script>alert(1)</script><p>Nouvelle annonce de Sam</p></body></html>";
+        assert_eq!(preview(html, 100), "En-tête Nouvelle annonce de Sam");
+        // Début de message coupé au milieu de la feuille de style : rien plutôt que du CSS.
+        assert_eq!(preview("<STYLE>td { color: red; ", 100), "");
+        // `<style/>` ouvre quand même un bloc de style (HTML) : la suite est retirée.
+        assert_eq!(preview("<p>avant</p><style/>après", 100), "avant");
     }
 }

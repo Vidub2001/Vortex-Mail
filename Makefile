@@ -20,20 +20,23 @@ SHELL  := /bin/bash
 PYTHON ?= python3
 OUT    := target/audit
 CLIPPY_JSON := $(OUT)/clippy.json
+# Version de l'application (src-tauri/Cargo.toml), envoyée à SonarQube (lot L1) :
+# le « nouveau code » y est compté depuis la version précédente.
+VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n 1)
 
-.PHONY: audit ci ispdb ispdb-age front-test ui-test ui-test-if-ready audit-baseline audit-tools deny npm-audit semgrep semgrep-test \
-        fmt clippy clippy-strict panic-unwind test corpus corpus-test sonar fuzz hooks help
+.PHONY: audit ci ispdb ispdb-age front-test front-coverage ui-test ui-test-if-ready audit-baseline audit-tools deny npm-audit semgrep semgrep-test \
+        fmt clippy clippy-strict panic-unwind fuzz-lock test corpus corpus-test sonar fuzz hooks help
 
 help:
 	@sed -n '2,18p' Makefile
 
-audit: audit-tools deny npm-audit ispdb-age semgrep fmt clippy panic-unwind test corpus front-test ui-test-if-ready
+audit: audit-tools deny npm-audit ispdb-age semgrep fmt clippy panic-unwind fuzz-lock test corpus front-test ui-test-if-ready
 	@echo
 	@echo "✔ make audit : vert (findings connus acceptés temporairement, voir security/)"
 
 # Intégration continue (lot G5) : les mêmes contrôles, mais un Chromium absent
 # fait échouer le build au lieu de sauter les tests de l'interface.
-ci: audit-tools deny npm-audit ispdb-age semgrep fmt clippy panic-unwind test corpus front-test ui-test
+ci: audit-tools deny npm-audit ispdb-age semgrep fmt clippy panic-unwind fuzz-lock test corpus front-test ui-test
 	@echo
 	@echo "✔ make ci : vert"
 
@@ -105,6 +108,14 @@ $(CLIPPY_JSON): | $(OUT)
 fmt:
 	cargo fmt --all -- --check
 
+# fuzz/Cargo.lock doit suivre le code (lot J4) : le fuzzing n'étant pas
+# construit par l'audit, il est resté figé du lot G4 à la version 0.3.4 sans
+# que rien le signale. `--locked` échoue s'il faudrait le modifier.
+fuzz-lock:
+	@cd fuzz && cargo metadata --locked --format-version 1 >/dev/null 2>&1 \
+		|| { echo "✘ fuzz/Cargo.lock n'est plus à jour : (cd fuzz && cargo metadata --format-version 1 >/dev/null), puis le commiter"; exit 1; }
+	@echo "✔ fuzz/Cargo.lock à jour"
+
 # mimeparse.rs rattrape une panique de mail-parser (catch_unwind) : ce filet
 # disparaîtrait sans bruit avec panic = "abort". On refuse donc ce réglage dans
 # les Cargo.toml du dépôt, dans .cargo/config(.toml) et dans RUSTFLAGS.
@@ -132,6 +143,12 @@ corpus:
 # Tests du frontend sans navigateur (Node 22.18 ou plus récent).
 front-test:
 	@npm test --silent
+
+# Couverture des mêmes tests, au format lcov, pour SonarQube (make sonar, lot J8c).
+front-coverage: | $(OUT)
+	node --import ./tests/frontend/setup.mjs --experimental-test-coverage --test-coverage-include='src/**' \
+		--test-reporter=dot --test-reporter-destination=stdout \
+		--test-reporter=lcov --test-reporter-destination=$(OUT)/lcov.info --test tests/frontend/*.test.mjs
 
 # Tests de l'interface dans Chromium (lot E4, tests/ui/) : version web en mode
 # démonstration, comptes fictifs, sans réseau. Installation une fois :
@@ -166,11 +183,15 @@ audit-baseline: | $(OUT)
 sonar: | $(OUT)
 	@test -n "$$SONAR_HOST_URL" || { echo "SONAR_HOST_URL non défini (ex. export SONAR_HOST_URL=http://sonarqube.exemple.lan:9000)"; exit 1; }
 	@test -n "$$SONAR_TOKEN"    || { echo "SONAR_TOKEN non défini (jeton à créer dans SonarQube › Mon compte › Sécurité)"; exit 1; }
-	@test -s $(CLIPPY_JSON) || $(MAKE) --no-print-directory $(CLIPPY_JSON)
+	@# Rapport Clippy refait à chaque analyse (lot L1) : un fichier resté d'une
+	@# analyse précédente réimporterait des alertes corrigées depuis.
+	@$(MAKE) --no-print-directory -B $(CLIPPY_JSON)
 	@$(PYTHON) scripts/audit/clippy_gate.py sonar $(CLIPPY_JSON) $(OUT)/clippy-sonar.json
+	@$(MAKE) --no-print-directory front-coverage
+	@echo "SonarQube : version $(VERSION)"
 	@if command -v sonar-scanner >/dev/null; then \
-		sonar-scanner; \
+		sonar-scanner -Dsonar.projectVersion=$(VERSION); \
 	else \
 		docker run --rm --network host -e SONAR_HOST_URL -e SONAR_TOKEN \
-			-v "$$PWD:/usr/src" -w /usr/src sonarsource/sonar-scanner-cli; \
+			-v "$$PWD:/usr/src" -w /usr/src sonarsource/sonar-scanner-cli -Dsonar.projectVersion=$(VERSION); \
 	fi

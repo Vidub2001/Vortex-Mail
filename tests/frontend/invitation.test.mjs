@@ -42,3 +42,16 @@ test("n° 7 : annulation et réponse d'invité", () => {
   assert.equal(planFor(invitation("REQUEST", { status: "CANCELLED" }), [stored]).kind, "cancel");
   for (const method of ["REPLY", "COUNTER", "reply"]) assert.equal(planFor(invitation(method), [stored]).kind, "reply", method);
 });
+
+test("S6 : mise à jour ou annulation d'un autre organisateur signalée", () => {
+  const other = { organizer: "Intrus", organizerEmail: "intrus@ailleurs.fr" };
+  const update = planFor(invitation("REQUEST", { sequence: 2, location: "Salle B", ...other }), [stored]);
+  assert.equal(update.kind, "update");
+  assert.deepEqual(update.otherOrganizer, { theirs: "intrus@ailleurs.fr", ours: "o@exemple.fr" });
+  const cancel = planFor(invitation("CANCEL", { sequence: 2, ...other }), [stored]);
+  assert.deepEqual(cancel.otherOrganizer, { theirs: "intrus@ailleurs.fr", ours: "o@exemple.fr" });
+  // Même organisateur, écrit autrement : rien à signaler.
+  assert.equal(planFor(invitation("CANCEL", { sequence: 2, organizer: "mailto:O@Exemple.fr" }), [stored]).otherOrganizer, undefined);
+  // Nouveau rendez-vous : aucun organisateur à comparer.
+  assert.equal(planFor(invitation("REQUEST", other), []).otherOrganizer, undefined);
+});

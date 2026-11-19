@@ -1,9 +1,11 @@
-// Champ de destinataires avec complétion : contacts et correspondants des messages.
+// Champ de destinataires avec complétion : contacts, puis destinataires des
+// messages envoyés (lot J13), qu'on peut écarter de la liste.
 import { Input } from "@fluentui/react-components";
-import { Person16Regular, PersonMail16Regular } from "@fluentui/react-icons";
+import { Dismiss12Regular, Person16Regular, PersonMail16Regular } from "@fluentui/react-icons";
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { mailboxEntry, splitAddressList } from "../compose";
+import { t } from "../i18n";
 import type { Suggestion } from "../types";
 
 interface Props {
@@ -58,6 +60,18 @@ export const AddressInput = forwardRef<HTMLInputElement, Props>(function Address
     setOpen(false);
   };
 
+  /** Adresse collectée écartée : plus proposée (un contact du carnet, si). */
+  const forget = (s: Suggestion) => {
+    if (s.contact) return;
+    api.forgetAddress(s.email).then(
+      () => {
+        setItems((list) => list.filter((x) => x.email !== s.email));
+        setActive(0);
+      },
+      () => {},
+    );
+  };
+
   const shown = open && items.length > 0;
 
   return (
@@ -88,25 +102,46 @@ export const AddressInput = forwardRef<HTMLInputElement, Props>(function Address
             pick(items[active]);
           } else if (e.key === "Escape") {
             setOpen(false);
+          } else if (e.key === "Delete" && e.shiftKey && !items[active].contact) {
+            // Maj+Suppr : comme dans Outlook, l'adresse surlignée n'est plus proposée.
+            e.preventDefault();
+            forget(items[active]);
           }
         }}
       />
       {shown && (
         <div className="address-suggestions" role="listbox">
           {items.map((s, i) => (
-            <button
+            <div
               key={s.email}
-              type="button"
               role="option"
+              // Focus gardé dans le champ (le choix se fait au clavier depuis lui) :
+              // l'option est focalisable par programme seulement.
+              tabIndex={-1}
               aria-selected={i === active}
-              className={i === active ? "on" : undefined}
+              className={i === active ? "address-suggestion on" : "address-suggestion"}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pick(s)}
             >
               {s.contact ? <Person16Regular /> : <PersonMail16Regular />}
               <span>{s.name || s.email}</span>
               {s.name && <span className="muted">{s.email}</span>}
-            </button>
+              {!s.contact && (
+                <button
+                  type="button"
+                  className="address-forget"
+                  tabIndex={-1}
+                  title={t("Ne plus proposer cette adresse")}
+                  aria-label={t("Ne plus proposer {email}", { email: s.email })}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    forget(s);
+                  }}
+                >
+                  <Dismiss12Regular />
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}

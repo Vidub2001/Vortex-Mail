@@ -52,7 +52,7 @@ Les versions sont construites à partir de ce dépôt par GitHub Actions. Chacun
 
 Les fichiers Windows ne sont pas encore signés : Windows peut afficher un avertissement à la première installation.
 
-> **État :** version 0.3.4, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
+> **État :** version 0.3.5, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
 
 ## Fonctionnalités
 
@@ -97,7 +97,8 @@ Les fichiers Windows ne sont pas encore signés : Windows peut afficher un avert
   suppriment), deux règles qui se renvoient un message ne le font pas circuler, et les rappels
   manqués pendant la fermeture sont résumés au démarrage.
 - Hors connexion : cache local complet ; les actions sont mises en attente et rejouées au retour du
-  réseau.
+  réseau. Le téléchargement du contenu des messages se règle compte par compte.
+- Nouvelle version signalée, une fois par jour au plus (désactivable dans Paramètres › Général).
 
 **Agenda et contacts**
 - Gmail (OAuth2 Google, CalDAV/CardDAV), Outlook.com, Mailo/Netcourrier et tout serveur
@@ -272,14 +273,17 @@ fuzz/, tests/            fuzzing, corpus de non-régression, tests de l'interfac
 - ~~Corrections de la relecture du code de novembre 2026 (sécurité, protection des données, fuseaux
   horaires de l'agenda), fuzzing, modèle de menace, règles de code Rust.~~
 - ~~Fonctionnement en arrière-plan : zone de notification, règles et notifications, rappels manqués.~~
+- ~~Suites de l'audit de novembre 2026 : grandes boîtes plus rapides, opérations groupées et en tâche
+  de fond, agenda et contacts allégés, recherche sur les serveurs bornée, complétion par les
+  adresses à qui l'on a écrit, durcissements.~~
 
 </details>
 
 À venir :
-1. Suites de l'audit de novembre 2026 : grandes boîtes plus rapides (liste par pages, opérations
-   groupées), agenda et contacts allégés, durcissements.
-2. Comptes O365 professionnels et scolaires, si le besoin apparaît (aujourd'hui : comptes
+1. Comptes O365 professionnels et scolaires, si le besoin apparaît (aujourd'hui : comptes
    personnels Outlook.com / O365 uniquement).
+2. Mise à jour automatique, si le besoin apparaît (aujourd'hui : nouvelle version signalée, lien
+   vers la page de la version).
 
 ## Limites connues
 

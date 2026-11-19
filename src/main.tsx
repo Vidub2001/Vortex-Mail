@@ -5,6 +5,7 @@ import { api, runningInTauri } from "./api";
 import { UnlockScreen } from "./components/UnlockScreen";
 import { lang } from "./i18n";
 import { bootstrapSecondaryWindow } from "./windows";
+import { loadSecureStore } from "./secure-store";
 
 // Fenêtre principale, ou fenêtre secondaire (message, rédaction) selon l'adresse.
 const params = new URLSearchParams(window.location.search);
@@ -41,7 +42,10 @@ const view = params.has("view")
   : import("./App").then(({ default: App }) => <App />);
 const start = () => {
   document.documentElement.lang = lang();
-  void view.then((element) => root.render(<React.StrictMode>{element}</React.StrictMode>));
+  // Fenêtre principale : règles et signatures relues dans le cache chiffré
+  // (audit S8) avant le premier affichage ; en cas d'échec, réglages par défaut.
+  const secure = params.has("view") ? Promise.resolve() : loadSecureStore().catch(() => {});
+  void Promise.all([view, secure]).then(([element]) => root.render(<React.StrictMode>{element}</React.StrictMode>));
 };
 
 // Mode portable : mot de passe maître avant tout (fenêtre principale seulement).

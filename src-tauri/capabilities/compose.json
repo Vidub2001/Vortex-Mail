@@ -14,6 +14,7 @@
     "core:window:allow-set-focus",
     "allow-list-accounts",
     "allow-address-suggest",
+    "allow-forget-address",
     "allow-save-draft",
     "allow-discard-draft",
     "allow-open-draft",

@@ -22,7 +22,9 @@ const IO_TIMEOUT: Duration = Duration::from_secs(60);
 /// (relecture complète n° 9).
 const SMTP_REPLY_TIMEOUT: Duration = Duration::from_mins(10);
 
-fn tcp(host: &str, port: u16) -> Result<TcpStream, String> {
+/// Connexion TCP à `host`, chaque adresse essayée à son tour, avec un délai
+/// de connexion et de lecture (IMAP, SMTP, serveur de jetons).
+pub(crate) fn tcp(host: &str, port: u16) -> Result<TcpStream, String> {
     let addrs = (host, port).to_socket_addrs().map_err(|e| tr!("serveur « {host} » introuvable : {e}", host = host, e = e))?;
     let mut last_error = None;
     for addr in addrs {
@@ -737,6 +739,7 @@ mod tests {
             oauth_client_id: String::new(),
             dav_url: String::new(),
             card_url: String::new(),
+            offline_bodies: true,
         };
         assert!(account(server("127.0.0.1", 1143, &pin)).validate().is_ok());
         assert!(account(server("imap.exemple.fr", 993, &pin)).validate().is_err(), "épinglage hors de la boucle locale");

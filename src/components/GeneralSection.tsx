@@ -170,6 +170,18 @@ export function GeneralSection({ themeMode, onThemeMode }: Props) {
       </fieldset>
 
       <fieldset className="account-fieldset">
+        <legend>{t("Mises à jour")}</legend>
+        <Switch
+          checked={g.checkUpdates}
+          onChange={(_, d) => saveGeneral({ checkUpdates: d.checked })}
+          label={t("Signaler les nouvelles versions")}
+        />
+        <p className="muted settings-hint">
+          {t("Une fois par jour, Vortex Mail demande à GitHub le numéro de la dernière version ; GitHub voit alors votre adresse IP. Rien n'est téléchargé ni installé sans vous.")}
+        </p>
+      </fieldset>
+
+      <fieldset className="account-fieldset">
         <legend>{t("Contacts")}</legend>
         <RadioGroup value={g.nameOrder} onChange={(_, d) => saveGeneral({ nameOrder: d.value as NameOrder })}>
           <Radio value="first-last" label={t("Prénom Nom (Marie Dupont)")} />

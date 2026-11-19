@@ -139,7 +139,11 @@ where
 fn key_agreement(cert: &Cert, content_key: &[u8], shared: &[u8], originator: &[u8], sha384: bool) -> Result<Vec<u8>, EncryptError> {
     let wrap = tlv(0x30, OID_AES256_WRAP);
     let info = crate::decrypt::shared_info(&wrap, None, content_key.len()).ok_or(EncryptError::Failed)?;
-    let kek = if sha384 { crate::decrypt::x963::<sha2::Sha384>(shared, &info, 32) } else { crate::decrypt::x963::<sha2::Sha256>(shared, &info, 32) };
+    let kek = zeroize::Zeroizing::new(if sha384 {
+        crate::decrypt::x963::<sha2::Sha384>(shared, &info, 32)
+    } else {
+        crate::decrypt::x963::<sha2::Sha256>(shared, &info, 32)
+    });
     let wrapped = crate::decrypt::aes_wrap::<aes::Aes256>(&kek, content_key).ok_or(EncryptError::Failed)?;
     // originator [0] EXPLICIT : originatorKey [1] IMPLICIT { id-ecPublicKey, BIT STRING }.
     let point = [&[0u8][..], originator].concat();
@@ -179,12 +183,15 @@ pub fn encrypt(content: &[u8], recipients: &[Vec<u8>]) -> Result<Vec<u8>, Encryp
         keys.push((cert, key));
     }
 
-    let mut content_key = [0u8; 32];
+    // Effacée de la mémoire à la fin, erreur comprise (audit S8) ; les clés éphémères des
+    // courbes elliptiques et leurs secrets partagés s'effacent d'eux-mêmes.
+    let mut content_key = zeroize::Zeroizing::new([0u8; 32]);
     let mut iv = [0u8; 16];
-    getrandom::fill(&mut content_key).map_err(|_| EncryptError::Failed)?;
+    getrandom::fill(content_key.as_mut_slice()).map_err(|_| EncryptError::Failed)?;
     getrandom::fill(&mut iv).map_err(|_| EncryptError::Failed)?;
-    let encrypted =
-        cbc::Encryptor::<aes::Aes256>::new_from_slices(&content_key, &iv).map_err(|_| EncryptError::Failed)?.encrypt_padded_vec::<Pkcs7>(content);
+    let encrypted = cbc::Encryptor::<aes::Aes256>::new_from_slices(content_key.as_slice(), &iv)
+        .map_err(|_| EncryptError::Failed)?
+        .encrypt_padded_vec::<Pkcs7>(content);
 
     let mut rng = rand::rng();
     let mut infos: Vec<Vec<u8>> = Vec::with_capacity(keys.len());
@@ -192,7 +199,7 @@ pub fn encrypt(content: &[u8], recipients: &[Vec<u8>]) -> Result<Vec<u8>, Encryp
     for (cert, key) in &keys {
         match key {
             PublicKey::Rsa(key) => {
-                let wrapped = key.encrypt(&mut rng, rsa::Pkcs1v15Encrypt, &content_key).map_err(|_| EncryptError::Failed)?;
+                let wrapped = key.encrypt(&mut rng, rsa::Pkcs1v15Encrypt, content_key.as_slice()).map_err(|_| EncryptError::Failed)?;
                 let serial = tlv(0x02, cert.serial());
                 let issuer_and_serial = tlv(0x30, &[cert.issuer(), serial.as_slice()].concat());
                 let algorithm = tlv(0x30, &[OID_RSA, NULL].concat());
@@ -204,14 +211,14 @@ pub fn encrypt(content: &[u8], recipients: &[Vec<u8>]) -> Result<Vec<u8>, Encryp
                 let secret = ephemeral::<p256::NistP256>()?;
                 let shared = p256::ecdh::diffie_hellman(secret.to_nonzero_scalar(), public.as_affine());
                 let point = secret.public_key().to_sec1_bytes();
-                infos.push(key_agreement(cert, &content_key, shared.raw_secret_bytes(), &point, false)?);
+                infos.push(key_agreement(cert, content_key.as_slice(), shared.raw_secret_bytes(), &point, false)?);
                 agreement = true;
             }
             PublicKey::P384(public) => {
                 let secret = ephemeral::<p384::NistP384>()?;
                 let shared = p384::ecdh::diffie_hellman(secret.to_nonzero_scalar(), public.as_affine());
                 let point = secret.public_key().to_sec1_bytes();
-                infos.push(key_agreement(cert, &content_key, shared.raw_secret_bytes(), &point, true)?);
+                infos.push(key_agreement(cert, content_key.as_slice(), shared.raw_secret_bytes(), &point, true)?);
                 agreement = true;
             }
         }

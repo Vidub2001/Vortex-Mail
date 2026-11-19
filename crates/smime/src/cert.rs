@@ -300,7 +300,6 @@ impl Cert {
         self.subject == self.issuer
     }
 
-    /// Whether `issuer`'s key made its signature.
     /// Les adresses `http` et `https` de la liste de certificats révoqués de son autorité
     /// (extension `cRLDistributionPoints`, RFC 5280 §4.2.1.13), quatre au plus (lot G2c).
     pub fn crl_urls(&self) -> Vec<String> {
@@ -324,6 +323,7 @@ impl Cert {
             .collect()
     }
 
+    /// Whether `issuer`'s key made its signature.
     pub fn signed_by(&self, issuer: &Cert) -> Result<(), Fault> {
         let signature = self.parsed.signature().as_bytes().ok_or(Fault::Invalid)?;
         algorithms::verify(issuer.public_key(), self.parsed.signature_algorithm(), None, self.tbs(), signature)

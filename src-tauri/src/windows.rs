@@ -63,6 +63,18 @@ fn remember_boot(label: &str, boot: WindowBoot) {
     }
 }
 
+/// Fenêtre fermée : ses réglages, son brouillon de départ et les messages
+/// dont elle pouvait reprendre les pièces jointes sont oubliés (audit B8 :
+/// ils restaient en mémoire jusqu'à la fin de l'application).
+pub(crate) fn forget(label: &str) {
+    if let Ok(mut all) = BOOTS.lock() {
+        all.retain(|(l, _)| l != label);
+    }
+    if let Ok(mut all) = SOURCES.lock() {
+        all.retain(|(l, _)| l != label);
+    }
+}
+
 /// Réglages et brouillon de départ de la fenêtre `label` ; le brouillon
 /// n'est rendu qu'une fois.
 fn take_boot(label: &str) -> WindowBoot {
@@ -277,6 +289,37 @@ pub(crate) fn drop_backup(cache: &std::sync::Arc<Mutex<crate::cache::Cache>>, la
     }
 }
 
+/// Réglages gardés dans le cache chiffré (audit S8, lot J12b) : seulement
+/// ceux-ci, et seulement pour la fenêtre principale (droits des fenêtres).
+pub(crate) const SECURE_PREFS: [&str; 4] = ["vortex.mail", "vortex.rules", "vortex.rules.moved", "vortex.rules.done.v3"];
+/// Taille d'un réglage, au plus (une liste de règles fait quelques Ko).
+const MAX_PREF: usize = 4 * 1024 * 1024;
+
+/// Travail sur le cache hors du fil principal : une commande synchrone de
+/// Tauri y tourne, et le verrou du cache peut être tenu plusieurs secondes
+/// par une synchronisation (relecture du lot J12) ; l'interface se figerait.
+async fn off_main_thread<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| tr!("tâche interrompue : {e}", e = e))?
+}
+
+/// Réglages enregistrés parmi [`SECURE_PREFS`] : (clé, valeur JSON).
+#[tauri::command]
+pub(crate) async fn prefs_get(state: State<'_, crate::AppState>) -> Result<Vec<(String, String)>, String> {
+    let cache = std::sync::Arc::clone(&state.cache);
+    off_main_thread(move || crate::router::lock_cache(&cache).prefs(&SECURE_PREFS)).await
+}
+
+/// Enregistre un réglage de [`SECURE_PREFS`] (`None` : le retirer). Les
+/// écritures arrivent une à une : `src/secure-store.ts` attend chacune.
+#[tauri::command]
+pub(crate) async fn prefs_set(state: State<'_, crate::AppState>, key: String, value: Option<String>) -> Result<(), String> {
+    if !SECURE_PREFS.contains(&key.as_str()) || value.as_ref().is_some_and(|v| v.len() > MAX_PREF) {
+        return Err(tr!("Réglage refusé.").into());
+    }
+    let cache = std::sync::Arc::clone(&state.cache);
+    off_main_thread(move || crate::router::lock_cache(&cache).pref_set(&key, value.as_deref())).await
+}
+
 /// Retire une copie de secours (reprise ou abandonnée depuis la fenêtre principale).
 #[tauri::command]
 #[expect(clippy::needless_pass_by_value, reason = "Tauri ne passe State aux commandes que par valeur")]
@@ -395,7 +438,16 @@ pub(crate) async fn open_window(
 
 #[cfg(test)]
 mod tests {
-    use super::{allowed_window, boot_settings, grant, may_reuse, remember_boot, take_boot, valid_event, WindowBoot, WindowEvent};
+    use super::{allowed_window, boot_settings, forget, grant, may_reuse, remember_boot, take_boot, valid_event, WindowBoot, WindowEvent};
+
+    #[test]
+    fn b8_fenetre_fermee_oubliee() {
+        remember_boot("compose-test-b8", WindowBoot { settings: "s".into(), init: Some("brouillon".into()) });
+        grant("compose-test-b8", vec![5]);
+        forget("compose-test-b8");
+        assert!(!may_reuse("compose-test-b8", 5), "plus de pièces jointes reprises");
+        assert_eq!(take_boot("compose-test-b8"), WindowBoot::default(), "brouillon de départ oublié");
+    }
 
     #[test]
     fn reglages_confies_par_la_fenetre_principale_seulement() {

@@ -12,6 +12,15 @@ async function newMail(context: BrowserContext, page: Page): Promise<Page> {
   return compose;
 }
 
+/**
+ * Clique sur « Envoyer ». La fenêtre se ferme dès l'envoi lancé (lot E1) :
+ * un clic Playwright, qui attend encore la page après l'action, échouait
+ * parfois sur « page fermée ». L'événement est donc envoyé sans attente.
+ */
+async function send(compose: Page) {
+  await compose.getByRole("button", { name: "Envoyer", exact: true }).dispatchEvent("click");
+}
+
 /** Remplit destinataire, objet et texte. */
 async function write(compose: Page, to: string, subject: string, body: string) {
   await compose.getByPlaceholder("Nom ou adresse").fill(to);
@@ -42,24 +51,55 @@ test("lecture : le corps s'affiche dans un cadre sans script", async ({ page }) 
   await expect(page.frameLocator("iframe").first().locator("body")).toContainText("On se retrouve à 12 h 30 dimanche ?");
 });
 
+test("lecture : un lien trompeur est réécrit avant l'affichage (audit S2)", async ({ page }) => {
+  await page.getByText("Votre relevé d'octobre est disponible").click();
+  const link = page.frameLocator("iframe").first().getByText("www.banque.example.com");
+  await expect(link).toHaveAttribute("href", /^https:\/\/[^/]+\/suspect\?/);
+  await expect(link).toHaveAttribute("title", "https://banque-exemple.example.net/connexion");
+});
+
 test("envoi : la fenêtre se ferme aussitôt, le résultat arrive dans la fenêtre principale", async ({ context, page }) => {
   const compose = await newMail(context, page);
   await write(compose, "marie.dupont@example.com", "Dimanche", "C'est noté !");
   const closed = compose.waitForEvent("close");
-  await compose.getByRole("button", { name: "Envoyer", exact: true }).click();
+  await send(compose);
   await closed;
   await expect(page.getByText("Message envoyé", { exact: true })).toBeVisible();
   // Rien ne reste à reprendre : la copie de secours est retirée.
   await expect(page.getByText("Brouillon non enregistré retrouvé")).toHaveCount(0);
 });
 
+test("P7 : texte brut et citation calculés à la demande", async ({ context, page }) => {
+  await page.getByText("Repas de dimanche").click();
+  await page.getByTitle("Affichage du message").click();
+  await page.getByRole("menuitemradio", { name: "Texte brut" }).click();
+  await expect(page.frameLocator("iframe").first().locator("body")).toContainText("On se retrouve à 12 h 30 dimanche ?");
+  const [reply] = await Promise.all([
+    context.waitForEvent("page"),
+    page.getByRole("button", { name: "Répondre", exact: true }).first().click(),
+  ]);
+  await expect(reply.getByLabel("Corps du message")).toContainText("On se retrouve à 12 h 30 dimanche ?");
+});
+
+test("J13 : destinataire d'un message envoyé proposé, puis écarté", async ({ context, page }) => {
+  const compose = await newMail(context, page);
+  const to = compose.getByPlaceholder("Nom ou adresse");
+  await to.fill("jules");
+  const option = compose.getByRole("option", { name: /jules\.bernard@partenaire\.example\.org/ });
+  await expect(option).toBeVisible();
+  await compose.getByRole("button", { name: "Ne plus proposer jules.bernard@partenaire.example.org" }).click();
+  await expect(option).toHaveCount(0);
+  await to.fill("");
+  await to.fill("jules");
+  // Délai de la complétion (120 ms) passé : toujours rien (les options du choix du compte ne comptent pas).
+  await compose.waitForTimeout(400);
+  await expect(compose.locator(".address-suggestions [role=option]")).toHaveCount(0);
+});
+
 test("envoi refusé : la rédaction se rouvre avec le message et l'erreur", async ({ context, page }) => {
   const compose = await newMail(context, page);
   await write(compose, "echec@example.com", "Message à renvoyer", "Texte gardé");
-  const [reopened] = await Promise.all([
-    context.waitForEvent("page"),
-    compose.getByRole("button", { name: "Envoyer", exact: true }).click(),
-  ]);
+  const [reopened] = await Promise.all([context.waitForEvent("page"), send(compose)]);
   await expect(page.getByText("Message non envoyé", { exact: true })).toBeVisible();
   await expect(reopened.getByLabel("Objet")).toHaveValue("Message à renvoyer");
   await expect(reopened.getByText(/550 destinataire refusé/)).toBeVisible();

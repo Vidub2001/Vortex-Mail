@@ -134,7 +134,9 @@ pub(crate) fn random_bytes<const N: usize>() -> Result<[u8; N], String> {
 // ================================================================ HTTPS minimal
 
 pub(crate) fn https_post(host: &str, path: &str, body: &str) -> Result<(u16, Vec<u8>), String> {
-    let tcp = TcpStream::connect((host, 443)).map_err(|e| tr!("connexion à {host} impossible : {e}", host = host, e = e))?;
+    // Délai de connexion, et toutes les adresses du serveur essayées (audit S7) :
+    // un serveur de jetons muet figeait la voie jusqu'au délai du système.
+    let tcp = crate::transport::tcp(host, 443)?;
     tcp.set_read_timeout(Some(Duration::from_secs(30))).ok();
     tcp.set_write_timeout(Some(Duration::from_secs(30))).ok();
     let connector = crate::transport::tls_connector()?;
@@ -147,7 +149,7 @@ pub(crate) fn https_post(host: &str, path: &str, body: &str) -> Result<(u16, Vec
     tls.write_all(request.as_bytes()).map_err(|e| tr!("HTTPS : {e}", e = e))?;
     // Certains serveurs ferment sans `close_notify` : on garde ce qui a été
     // reçu. Réponse d'1 Mo au plus (un jeton en fait quelques Kio).
-    let (raw, _) = crate::http::read_capped(&mut tls, 1024 * 1024)?;
+    let (raw, _) = crate::http::read_capped(&mut tls, 1024 * 1024, Duration::from_mins(2))?;
     parse_http_response(&raw)
 }
 
@@ -366,7 +368,18 @@ pub(crate) fn forget(user: &str) -> Result<(), String> {
 }
 
 /// Jeton d'accès valide pour IMAP et SMTP (renouvelé si nécessaire).
+/// Un renouvellement de jeton à la fois (audit S7) : à l'expiration, plusieurs
+/// voies demandaient un jeton en même temps, et un fournisseur qui fait
+/// tourner les jetons de renouvellement pouvait invalider l'un d'eux. La voie
+/// qui attend retrouve ensuite le jeton neuf en mémoire. Partagé avec Google.
+pub(crate) static REFRESHING: Mutex<()> = Mutex::new(());
+
 pub(crate) fn access_token(user: &str) -> Result<String, String> {
+    if let Some(token) = cache_get(user) {
+        return Ok(token);
+    }
+    // Garde sans donnée : une panique ailleurs ne laisse rien à moitié écrit.
+    let _refreshing = REFRESHING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(token) = cache_get(user) {
         return Ok(token);
     }

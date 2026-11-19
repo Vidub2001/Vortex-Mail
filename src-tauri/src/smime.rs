@@ -799,7 +799,8 @@ fn address_key(address: &str) -> String {
 /// Seuls les certificats qui peuvent servir à chiffrer sont gardés.
 fn remember(address: &str, der: &[u8], verified: bool, now: i64) {
     let key = address_key(address);
-    if key.is_empty() || !vortex_smime::can_encrypt_to(der) {
+    // Sans dossier des réglages (tests, avant le démarrage) : rien à garder.
+    if key.is_empty() || correspondents_file().is_none() || !vortex_smime::can_encrypt_to(der) {
         return;
     }
     let Some(new) = vortex_smime::certificate_signer(der) else { return };

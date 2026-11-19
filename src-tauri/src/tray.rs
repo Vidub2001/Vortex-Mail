@@ -100,13 +100,18 @@ pub(crate) fn show_main(app: &AppHandle) {
 
 /// Fermeture de la fenêtre principale : cachée au lieu d'être fermée quand le
 /// réglage le demande et que l'icône est là. Les autres fenêtres se ferment
-/// normalement.
+/// normalement, et ce qui leur avait été confié est oublié.
 pub(crate) fn on_window_event(window: &Window, event: &WindowEvent) {
-    let WindowEvent::CloseRequested { api, .. } = event else { return };
-    if window.label() == MAIN && KEEP_IN_TRAY.load(Ordering::Relaxed) && TRAY_SHOWN.load(Ordering::Relaxed) {
-        api.prevent_close();
-        if let Err(e) = window.hide() {
-            crate::diag::report(&e);
+    match event {
+        WindowEvent::CloseRequested { api, .. }
+            if window.label() == MAIN && KEEP_IN_TRAY.load(Ordering::Relaxed) && TRAY_SHOWN.load(Ordering::Relaxed) =>
+        {
+            api.prevent_close();
+            if let Err(e) = window.hide() {
+                crate::diag::report(&e);
+            }
         }
+        WindowEvent::Destroyed => crate::windows::forget(window.label()),
+        _ => {}
     }
 }

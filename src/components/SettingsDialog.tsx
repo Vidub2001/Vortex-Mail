@@ -359,7 +359,7 @@ function AccountsSection({
       setView({ kind: "list" });
       setConfirmDelete(null);
       setError(null);
-      reload();
+      void reload();
     }
   }, [open]);
 
@@ -958,6 +958,13 @@ function AccountForm({
               </div>
             </Field>
           </div>
+          {/* Lot J11b : pour une très grosse boîte ou un réseau limité. */}
+          <Checkbox
+            checked={form.offlineBodies !== false}
+            label={t("Télécharger le contenu des messages pour les lire hors connexion")}
+            title={t("Décoché : seuls les en-têtes sont gardés ; un message est lu sur le serveur à son ouverture.")}
+            onChange={(_, d) => update({ offlineBodies: d.checked === true })}
+          />
         </fieldset>
 
         <div className="servers-grid">

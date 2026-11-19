@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use imap_lite::{FetchItem, ListEntry, MailboxStatus, SearchKey, SelectInfo, UidSet};
 use mail_core::{
-    Account, FailedMove, Flags, Folder, FolderId, FolderRole, Journal, MailBackend, MailError, Message, MessageId, MessageSummary,
-    MoveReport, RawMessage,
+    Account, FailedMove, Flags, Folder, FolderId, FolderRole, Journal, JournalAccess, MailBackend, MailError, Message, MessageId,
+    MessageSummary, MoveReport, RawMessage, SharedJournal,
 };
 use serde::Serialize;
 
@@ -152,7 +152,15 @@ impl ImapAccount {
 
     /// Exécute une opération sur une connexion, en se (re)connectant au besoin.
     /// Une connexion perdue (mise en veille, coupure) est retentée une fois.
-    fn run<T>(&self, lane: Lane, mut op: impl FnMut(&mut Session) -> imap_lite::Result<T>) -> Result<T, String> {
+    fn run<T>(&self, lane: Lane, op: impl FnMut(&mut Session) -> imap_lite::Result<T>) -> Result<T, String> {
+        self.run_tries(lane, 2, op)
+    }
+
+    /// Comme [`ImapAccount::run`], avec `tries` essais au plus (1 : jamais
+    /// refaite). La recherche sur les serveurs n'en fait qu'un : un dossier
+    /// qui dépasse le délai de lecture n'est pas recherché une seconde fois
+    /// (lot J14).
+    fn run_tries<T>(&self, lane: Lane, tries: u32, mut op: impl FnMut(&mut Session) -> imap_lite::Result<T>) -> Result<T, String> {
         let slot = match lane {
             Lane::Sync => &self.sync,
             Lane::User => &self.user,
@@ -184,7 +192,7 @@ impl ImapAccount {
                 Ok(value) => return Ok(value),
                 Err(e) if e.is_connection_lost() => {
                     *session = None;
-                    if attempt >= 2 {
+                    if attempt >= tries {
                         return Err(e.to_string());
                     }
                 }
@@ -211,6 +219,11 @@ impl ImapAccount {
 
     fn folders(&self) -> Vec<Folder> {
         guard(&self.state).folders.clone()
+    }
+
+    /// Un dossier, sans copier toute l'arborescence (audit P4).
+    fn find_folder(&self, matches: impl Fn(&Folder) -> bool) -> Option<Folder> {
+        guard(&self.state).folders.iter().find(|f| matches(f)).cloned()
     }
 
     fn is_gmail_all(&self, mailbox: &str) -> bool {
@@ -317,6 +330,27 @@ fn move_once(s: &mut Session, attempts: &mut u32, mailbox: &str, known: Option<u
         s.uid_expunge(&copied)?;
     }
     Ok(())
+}
+
+/// Messages disparus du serveur : parmi ceux lus dans le cache **au début**
+/// de la synchronisation (`cached`), ceux que le serveur n'a plus. Un message
+/// ajouté au cache entre-temps par une autre action (brouillon enregistré,
+/// résultat de recherche ouvert) n'est jamais retiré (audit B2).
+fn missing_since(cached: &[u32], present: &[u32]) -> Vec<u32> {
+    let present: HashSet<u32> = present.iter().copied().collect();
+    cached.iter().copied().filter(|uid| !present.contains(uid)).collect()
+}
+
+/// Renommage rejouable (audit B8) : `ImapAccount::run` refait l'opération
+/// après une coupure ; si le premier `RENAME` avait abouti sur le serveur,
+/// le second est refusé. Au nouvel essai, un refus alors que la cible existe
+/// et que l'ancien nom a disparu veut dire que c'est fait.
+fn rename_once(s: &mut Session, attempts: &mut u32, from: &str, to: &str) -> imap_lite::Result<()> {
+    *attempts += 1;
+    match s.rename(from, to) {
+        Err(imap_lite::Error::No(_)) if *attempts > 1 && s.status(to).is_ok() && s.status(from).is_err() => Ok(()),
+        result => result,
+    }
 }
 
 /// Premier passage complet sur un dossier ? Oui s'il a été renuméroté, ou s'il
@@ -471,7 +505,7 @@ fn sync_mailbox(account: &ImapAccount, cache: &Mutex<Cache>, mailbox: &str) -> R
                     Vec::new()
                 } else {
                     // « n:* » renvoie toujours au moins le dernier message : on filtre.
-                    s.uid_fetch_set(&format!("{}:*", max + 1), LIST_QUERY)?
+                    s.uid_fetch_set(&format!("{}:*", max.saturating_add(1)), LIST_QUERY)?
                         .into_iter()
                         .filter(|i| i.uid().is_some_and(|u| u > max))
                         .collect()
@@ -506,45 +540,49 @@ fn sync_mailbox(account: &ImapAccount, cache: &Mutex<Cache>, mailbox: &str) -> R
         })
         .map_err(backend)?;
 
-    let mut c = lock_cache(cache);
-    if validity_changed {
-        c.reset_folder(&account_id, &mailbox).map_err(backend)?;
-    }
-    if let Some(v) = info.uid_validity {
-        c.set_uid_validity(&account_id, &mailbox, v).map_err(backend)?;
-    }
+    // Analyse des en-têtes avant de prendre le verrou du cache.
     let headers: Vec<Header> = new_items.iter().filter_map(header_from).collect();
-    c.upsert_headers(&account_id, &mailbox, &headers).map_err(backend)?;
-
     let item_flags = |items: &[FetchItem]| -> Vec<(u32, Flags)> { items.iter().filter_map(|i| Some((i.uid()?, flags_from(i)))).collect() };
-    match refresh {
-        Refresh::Nothing => {}
-        Refresh::Full(known_items) => {
-            if let Some(&min) = cached_uids.first() {
-                let present: Vec<u32> = known_items.iter().filter_map(FetchItem::uid).collect();
-                c.remove_missing(&account_id, &mailbox, min, &present).map_err(backend)?;
-                c.update_flags(&account_id, &mailbox, &item_flags(&known_items)).map_err(backend)?;
+    // Une seule transaction (audit P7) : une synchronisation interrompue ne
+    // laisse plus le cache à moitié écrit.
+    lock_cache(cache)
+        .atomically(|c| {
+            if validity_changed {
+                c.reset_folder(&account_id, &mailbox)?;
             }
-        }
-        Refresh::Delta { changed, removed } => {
-            // Seuls les messages connus de cette synchronisation peuvent être retirés :
-            // jamais un message ajouté entre-temps au cache par une autre action.
-            let candidates = cached_uids.iter().copied().chain(new_items.iter().filter_map(FetchItem::uid));
-            let gone: Vec<u32> = match removed {
-                Removed::Vanished(set) => candidates.filter(|u| set.contains(*u)).collect(),
-                Removed::Present(present) => {
-                    let present: std::collections::HashSet<u32> = present.into_iter().collect();
-                    candidates.filter(|u| !present.contains(u)).collect()
+            if let Some(v) = info.uid_validity {
+                c.set_uid_validity(&account_id, &mailbox, v)?;
+            }
+            c.upsert_headers(&account_id, &mailbox, &headers)?;
+            match refresh {
+                Refresh::Nothing => {}
+                Refresh::Full(known_items) => {
+                    if !cached_uids.is_empty() {
+                        let present: Vec<u32> = known_items.iter().filter_map(FetchItem::uid).collect();
+                        c.delete_messages(&account_id, &mailbox, &missing_since(&cached_uids, &present))?;
+                        c.update_flags(&account_id, &mailbox, &item_flags(&known_items))?;
+                    }
                 }
-            };
-            c.delete_messages(&account_id, &mailbox, &gone).map_err(backend)?;
-            c.update_flags(&account_id, &mailbox, &item_flags(&changed)).map_err(backend)?;
-        }
-    }
-    // En dernier, une fois le cache à jour : point de départ de la prochaine fois.
-    let modseq = info.highest_modseq.filter(|_| condstore && !info.no_modseq);
-    c.set_modseq_state(&account_id, &mailbox, modseq, info.exists).map_err(backend)?;
-    Ok(())
+                Refresh::Delta { changed, removed } => {
+                    // Seuls les messages connus de cette synchronisation peuvent être retirés :
+                    // jamais un message ajouté entre-temps au cache par une autre action.
+                    let candidates = cached_uids.iter().copied().chain(new_items.iter().filter_map(FetchItem::uid));
+                    let gone: Vec<u32> = match removed {
+                        Removed::Vanished(set) => candidates.filter(|u| set.contains(*u)).collect(),
+                        Removed::Present(present) => {
+                            let present: std::collections::HashSet<u32> = present.into_iter().collect();
+                            candidates.filter(|u| !present.contains(u)).collect()
+                        }
+                    };
+                    c.delete_messages(&account_id, &mailbox, &gone)?;
+                    c.update_flags(&account_id, &mailbox, &item_flags(&changed))?;
+                }
+            }
+            // En dernier, une fois le cache à jour : point de départ de la prochaine fois.
+            let modseq = info.highest_modseq.filter(|_| condstore && !info.no_modseq);
+            c.set_modseq_state(&account_id, &mailbox, modseq, info.exists)
+        })
+        .map_err(backend)
 }
 
 /// Archive Gmail : « Tous les messages » sans ce qui est encore dans la
@@ -583,26 +621,29 @@ fn sync_gmail_archive(account: &ImapAccount, cache: &Mutex<Cache>, mailbox: &str
         })
         .map_err(backend)?;
 
-    let mut c = lock_cache(cache);
-    if validity_changed {
-        c.reset_folder(account_id, mailbox).map_err(backend)?;
-    }
-    if let Some(v) = info.uid_validity {
-        c.set_uid_validity(account_id, mailbox, v).map_err(backend)?;
-    }
     let headers: Vec<Header> = new_items.iter().filter_map(header_from).collect();
-    c.upsert_headers(account_id, mailbox, &headers).map_err(backend)?;
-    if !validity_changed {
-        // Revenu dans la réception (ou supprimé) : retiré de l'archive.
-        let archived: std::collections::HashSet<u32> = archived.into_iter().collect();
-        let gone: Vec<u32> = cached.iter().filter(|u| !archived.contains(u)).copied().collect();
-        c.delete_messages(account_id, mailbox, &gone).map_err(backend)?;
-        let flags: Vec<(u32, Flags)> = flag_items.iter().filter_map(|i| Some((i.uid()?, flags_from(i)))).collect();
-        c.update_flags(account_id, mailbox, &flags).map_err(backend)?;
-    }
-    // Liste recalculée à chaque passage : pas de synchronisation incrémentale ici.
-    c.set_modseq_state(account_id, mailbox, None, info.exists).map_err(backend)?;
-    Ok(())
+    // Une seule transaction, comme `sync_mailbox` (audit P7).
+    lock_cache(cache)
+        .atomically(|c| {
+            if validity_changed {
+                c.reset_folder(account_id, mailbox)?;
+            }
+            if let Some(v) = info.uid_validity {
+                c.set_uid_validity(account_id, mailbox, v)?;
+            }
+            c.upsert_headers(account_id, mailbox, &headers)?;
+            if !validity_changed {
+                // Revenu dans la réception (ou supprimé) : retiré de l'archive.
+                let archived: std::collections::HashSet<u32> = archived.into_iter().collect();
+                let gone: Vec<u32> = cached.iter().filter(|u| !archived.contains(u)).copied().collect();
+                c.delete_messages(account_id, mailbox, &gone)?;
+                let flags: Vec<(u32, Flags)> = flag_items.iter().filter_map(|i| Some((i.uid()?, flags_from(i)))).collect();
+                c.update_flags(account_id, mailbox, &flags)?;
+            }
+            // Liste recalculée à chaque passage : pas de synchronisation incrémentale ici.
+            c.set_modseq_state(account_id, mailbox, None, info.exists)
+        })
+        .map_err(backend)
 }
 
 /// Arborescence d'un compte relue sur le serveur et enregistrée dans le cache.
@@ -733,6 +774,10 @@ fn mark_subscriptions(folders: &mut [Folder], subscribed: &[String]) {
     }
 }
 
+/// Niveaux de dossiers gardés, au plus (audit S7) : un serveur qui annonce
+/// des milliers de niveaux ne fait pas déborder la pile de l'arborescence.
+const MAX_FOLDER_DEPTH: u32 = 64;
+
 fn build_folders(account_id: &str, entries: Vec<(ListEntry, Option<MailboxStatus>)>) -> Vec<Folder> {
     fn visit(
         parent: Option<&str>,
@@ -742,6 +787,9 @@ fn build_folders(account_id: &str, entries: Vec<(ListEntry, Option<MailboxStatus
         account_id: &str,
         out: &mut Vec<Folder>,
     ) {
+        if depth >= MAX_FOLDER_DEPTH {
+            return;
+        }
         for (entry, status, role) in nodes {
             if parent_of(entry).as_deref() != parent {
                 continue;
@@ -942,6 +990,30 @@ pub struct Router {
     cache: Arc<Mutex<Cache>>,
     /// Téléchargement en arrière-plan pour la lecture hors connexion.
     prefetch: Mutex<Option<Prefetch>>,
+    /// Dernier message entier lu sur le serveur (audit P5).
+    last_raw: Mutex<Option<LastRaw>>,
+}
+
+/// Plus gros message gardé en mémoire après sa lecture (audit P5).
+const LAST_RAW_MAX: usize = 30 << 20;
+
+/// Dernier message entier lu sur le serveur, gardé pour ses pièces jointes
+/// (audit P5) : « Tout enregistrer » sur un message de 20 Mo à cinq pièces ne
+/// télécharge plus 100 Mo. Un UID ne désigne qu'un seul message tant que
+/// l'`UIDVALIDITY` du dossier ne change pas : il fait partie de la clé, et un
+/// message dont le dossier n'a pas d'`UIDVALIDITY` connue n'est pas gardé.
+struct LastRaw {
+    account: String,
+    mailbox: String,
+    uid: u32,
+    validity: u32,
+    raw: Arc<[u8]>,
+}
+
+impl LastRaw {
+    fn is(&self, r: &ImapRef, validity: u32) -> bool {
+        self.account == r.account && self.mailbox == r.mailbox && self.uid == r.uid && self.validity == validity
+    }
 }
 
 /// Ne prend aucun verrou (un `Debug` ne doit pas pouvoir bloquer).
@@ -957,6 +1029,15 @@ struct Prefetch {
     synced: std::collections::HashSet<FolderId>,
     backfilled: std::collections::HashSet<FolderId>,
     resync: bool,
+    /// Messages sans corps par dossier : comptés au début du tour, puis
+    /// recomptés seulement pour le dossier de chaque étape (audit P2).
+    counts: std::collections::HashMap<FolderId, u32>,
+}
+
+impl Prefetch {
+    fn remaining(&self) -> u32 {
+        self.counts.values().fold(0, |total, n| total.saturating_add(*n))
+    }
 }
 
 /// Remplacement d'un brouillon chiffré par une version en clair (audit S4).
@@ -1012,6 +1093,38 @@ pub struct DraftContent {
 pub struct SearchReport {
     pub results: Vec<MessageSummary>,
     pub errors: Vec<AccountError>,
+    /// Dossiers non parcourus : la recherche s'est arrêtée au bout de
+    /// [`SEARCH_BUDGET`] (lot J14), les résultats peuvent être incomplets.
+    pub unfinished: usize,
+}
+
+/// Durée d'une recherche sur les serveurs, au plus (lot J14, décision du
+/// 19 novembre 2026 : 15 s d'abord, puis 30 s après essai, « raisonnable »). Les résultats trouvés
+/// sont alors rendus, et les dossiers restants comptés.
+const SEARCH_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Rang d'un dossier dans une recherche sur les serveurs : les plus utiles
+/// d'abord, pour que des résultats partiels soient les bons.
+fn search_rank(role: FolderRole) -> u8 {
+    match role {
+        FolderRole::Inbox => 0,
+        FolderRole::Sent => 1,
+        FolderRole::Archive => 2,
+        FolderRole::Drafts => 3,
+        _ => 4,
+    }
+}
+
+/// Étape de la recherche d'un compte, envoyée à [`Router::search`].
+enum SearchStep {
+    /// Dossiers à parcourir pour ce compte.
+    Planned(usize),
+    /// Un dossier parcouru : ses messages trouvés (compte, dossier, rôle), s'il y en a.
+    Searched(Option<(String, String, FolderRole, Vec<FetchItem>)>),
+    /// Compte injoignable : ses dossiers restants ne sont pas comptés comme non parcourus.
+    Failed { account_id: String, message: String, remaining: usize },
+    /// Ce compte a fini (ou le temps est écoulé).
+    Done,
 }
 
 /// Bilan d'un import de messages (lot E8a).
@@ -1153,7 +1266,7 @@ impl Router {
     /// Les arborescences sont reprises du cache : affichage immédiat au démarrage.
     pub fn new(configs: Vec<AccountConfig>, cache: Arc<Mutex<Cache>>) -> Self {
         let accounts = configs.into_iter().map(|c| Arc::new(ImapAccount::new(c))).collect();
-        let router = Self { accounts: RwLock::new(accounts), cache, prefetch: Mutex::new(None) };
+        let router = Self { accounts: RwLock::new(accounts), cache, prefetch: Mutex::new(None), last_raw: Mutex::new(None) };
         router.reload_folders();
         router.publish_accounts();
         router
@@ -1230,6 +1343,7 @@ impl Router {
             if let Err(e) = self.cache().delete_account(&id) {
                 crate::diag::report(&e);
             }
+            *guard(&self.last_raw) = None;
         }
         self.publish_accounts();
         // Anciennes connexions fermées une fois leurs opérations terminées.
@@ -1248,6 +1362,7 @@ impl Router {
         if let Err(e) = self.cache().delete_account(id) {
             crate::diag::report(&e);
         }
+        *guard(&self.last_raw) = None;
         self.publish_accounts();
         old.close();
         true
@@ -1364,11 +1479,40 @@ impl Router {
         complete_item(items, uid)
     }
 
+    /// Message entier : celui gardé en mémoire s'il s'agit du même (audit P5),
+    /// sinon relu sur le serveur, puis gardé.
+    fn full_raw(&self, r: &ImapRef) -> Result<Arc<[u8]>, MailError> {
+        let validity = self.known_validity(&r.account, &r.mailbox);
+        if let Some(validity) = validity {
+            if let Some(last) = guard(&self.last_raw).as_ref().filter(|last| last.is(r, validity)) {
+                return Ok(Arc::clone(&last.raw));
+            }
+        }
+        let item = self.fetch_full(r)?;
+        let raw: Arc<[u8]> = Arc::from(item.body("BODY[]").unwrap_or_default());
+        self.remember_raw(r, validity, &raw);
+        Ok(raw)
+    }
+
+    /// Garde `raw` comme dernier message lu, s'il n'est pas trop gros et que
+    /// l'`UIDVALIDITY` de son dossier est connue (audit P5).
+    fn remember_raw(&self, r: &ImapRef, validity: Option<u32>, raw: &Arc<[u8]>) {
+        let Some(validity) = validity else { return };
+        if raw.len() > LAST_RAW_MAX {
+            return;
+        }
+        let last = LastRaw { account: r.account.clone(), mailbox: r.mailbox.clone(), uid: r.uid, validity, raw: Arc::clone(raw) };
+        *guard(&self.last_raw) = Some(last);
+    }
+
     /// Télécharge un message absent du cache, l'affiche et le garde pour la suite.
     pub fn message(&self, id: MessageId) -> Result<Message, MailError> {
         let r = self.imap_ref(id)?;
+        let validity = self.known_validity(&r.account, &r.mailbox);
         let item = self.fetch_full(&r)?;
         let raw = item.body("BODY[]").unwrap_or_default();
+        // Ses pièces jointes s'ouvrent ensuite sans le relire (audit P5).
+        self.remember_raw(&r, validity, &Arc::from(raw));
         let (parsed, html, extra) = body_record(raw);
 
         let summary = MessageSummary {
@@ -1516,9 +1660,27 @@ impl Router {
         folders
     }
 
-    fn offline_remaining(&self) -> u32 {
-        let c = self.cache();
-        self.offline_folders().iter().filter_map(|f| c.count_without_body(&f.account_id, &f.path).ok()).sum()
+    /// Messages du dossier `folder_id` encore sans corps (à télécharger : un
+    /// compte sans lecture hors connexion n'en a aucun, lot J11b).
+    fn count_without_body(&self, folder_id: &str) -> u32 {
+        let Ok((account_id, mailbox)) = Self::split_folder(folder_id) else { return 0 };
+        if !self.offline_bodies(&account_id) {
+            return 0;
+        }
+        self.cache().count_without_body(&account_id, &mailbox).unwrap_or(0)
+    }
+
+    /// Le contenu des messages du compte est-il téléchargé d'avance (lot J11b) ?
+    fn offline_bodies(&self, account_id: &str) -> bool {
+        self.imap_account(account_id).is_ok_and(|a| a.config.offline_bodies)
+    }
+
+    /// Reste à télécharger après une étape sur `folder_id` : seul ce dossier a
+    /// pu changer, les autres gardent leur compte (audit P2 : chaque étape
+    /// recomptait tous les dossiers, verrou du cache tenu).
+    fn remaining_after(&self, st: &mut Prefetch, folder_id: &str) -> u32 {
+        st.counts.insert(folder_id.to_string(), self.count_without_body(folder_id));
+        st.remaining()
     }
 
     /// Complète les en-têtes plus anciens que ceux en cache (par tranches).
@@ -1568,18 +1730,16 @@ impl Router {
         let mut tour = guard(&self.prefetch);
         if tour.is_none() {
             self.reload_folders();
-            *tour = Some(Prefetch {
-                queue: self.offline_folders().into_iter().map(|f| f.id).collect(),
-                synced: HashSet::default(),
-                backfilled: HashSet::default(),
-                resync,
-            });
+            let queue: std::collections::VecDeque<FolderId> = self.offline_folders().into_iter().map(|f| f.id).collect();
+            let counts = queue.iter().map(|id| (id.clone(), self.count_without_body(id))).collect();
+            *tour = Some(Prefetch { queue, synced: HashSet::default(), backfilled: HashSet::default(), resync, counts });
         }
         loop {
             let st = tour.as_mut().expect("tour en cours");
             let Some(folder_id) = st.queue.front().cloned() else {
+                let remaining = st.remaining();
                 *tour = None;
-                return Ok(PrefetchReport { fetched: 0, remaining: self.offline_remaining(), done: true });
+                return Ok(PrefetchReport { fetched: 0, remaining, done: true });
             };
             let do_sync = st.resync && !st.synced.contains(&folder_id);
             let do_backfill = st.resync && !do_sync && !st.backfilled.contains(&folder_id);
@@ -1589,7 +1749,7 @@ impl Router {
                     crate::diag::report(&format_args!("hors connexion, {folder_id} : {e}"));
                     st.queue.pop_front();
                 }
-                return Ok(PrefetchReport { fetched: 0, remaining: self.offline_remaining(), done: false });
+                return Ok(PrefetchReport { fetched: 0, remaining: self.remaining_after(st, &folder_id), done: false });
             }
             if do_backfill {
                 match self.backfill_folder(&folder_id, LIST_LIMIT) {
@@ -1602,10 +1762,15 @@ impl Router {
                         st.backfilled.insert(folder_id.clone());
                     }
                 }
-                return Ok(PrefetchReport { fetched: 0, remaining: self.offline_remaining(), done: false });
+                return Ok(PrefetchReport { fetched: 0, remaining: self.remaining_after(st, &folder_id), done: false });
             }
 
             let (account_id, mailbox) = Self::split_folder(&folder_id)?;
+            // Compte sans lecture hors connexion : en-têtes seulement (lot J11b).
+            if !self.offline_bodies(&account_id) {
+                st.queue.pop_front();
+                continue;
+            }
             let uids = self.cache().uids_without_body(&account_id, &mailbox, PREFETCH_BATCH).map_err(backend)?;
             if uids.is_empty() {
                 st.queue.pop_front();
@@ -1639,21 +1804,21 @@ impl Router {
                     }
                 }
             }
+            let Some(st) = tour.as_mut() else { return Ok(PrefetchReport { fetched, remaining: 0, done: false }) };
             // Messages disparus du serveur entre-temps : on passe au dossier suivant.
             if fetched == 0 {
-                if let Some(st) = tour.as_mut() {
-                    st.queue.pop_front();
-                }
+                st.queue.pop_front();
             }
-            return Ok(PrefetchReport { fetched, remaining: self.offline_remaining(), done: false });
+            return Ok(PrefetchReport { fetched, remaining: self.remaining_after(st, &folder_id), done: false });
         }
     }
 
-    /// Contenu d'une pièce jointe, relu sur le serveur.
+    /// Contenu d'une pièce jointe, lu dans le dernier message gardé en mémoire
+    /// ou relu sur le serveur (audit P5).
     pub fn attachment(&self, id: MessageId, index: u32) -> Result<mimeparse::AttachmentData, MailError> {
         let r = self.imap_ref(id)?;
-        let item = self.fetch_full(&r)?;
-        let raw = item.body("BODY[]").unwrap_or_default();
+        let whole = self.full_raw(&r)?;
+        let raw: &[u8] = &whole;
         // Message chiffré (lot D3a) : pièces jointes lues dans le contenu déchiffré,
         // en mémoire.
         let decrypted = if smime::is_encrypted(raw) {
@@ -1773,13 +1938,14 @@ impl Router {
         let children: Vec<String> =
             self.imap_account(account_id)?.folders().iter().filter(|f| f.path.starts_with(&prefix)).map(|f| f.path.clone()).collect();
         let (from, to) = (old.to_string(), new.to_string());
+        let mut attempts = 0;
         self.imap_account(account_id)?
             .run(Lane::User, |s| {
                 // Un serveur peut refuser de renommer le dossier ouvert.
                 if s.selected().is_some_and(|m| m == from || m.starts_with(&prefix)) {
                     s.select("INBOX")?;
                 }
-                s.rename(&from, &to)?;
+                rename_once(s, &mut attempts, &from, &to)?;
                 // Abonnements : sous le nouveau nom, pour rester visible (vue unifiée, Thunderbird…).
                 for path in std::iter::once(&from).chain(children.iter()) {
                     let moved = format!("{to}{}", &path[from.len()..]);
@@ -1841,30 +2007,39 @@ impl Router {
     }
 
     /// Écrit tous les messages d'un dossier dans `out`, au format mbox (lot
-    /// E8a), du plus ancien au plus récent, par tranches de 50 : la connexion
-    /// est rendue entre deux tranches, les autres actions ne l'attendent pas.
-    /// Renvoie le nombre de messages écrits.
+    /// E8a), du plus ancien au plus récent, par tranches de 16 Mo ou de 50
+    /// messages au plus (audit P7 : 50 messages entiers pouvaient faire des
+    /// centaines de Mo en mémoire) : la connexion est rendue entre deux
+    /// tranches, les autres actions ne l'attendent pas. Renvoie le nombre de
+    /// messages écrits.
     ///
     /// # Errors
     /// Dossier inconnu, serveur injoignable, ou écriture du fichier impossible.
     pub fn export_folder(&self, folder_id: &str, out: &mut impl std::io::Write) -> Result<u32, MailError> {
-        const CHUNK: usize = 50;
         let (account_id, mailbox) = Self::split_folder(folder_id)?;
         let account = self.imap_account(&account_id)?;
         let known = self.known_validity(&account_id, &mailbox);
-        let mut uids = account
+        let sizes: Vec<(u32, u32)> = account
             .run(Lane::User, |s| {
                 ensure_selected(s, &mailbox, known)?;
-                s.uid_search_raw("ALL")
+                let uids = s.uid_search_raw("ALL")?;
+                // Tailles seulement : quelques octets par message.
+                if uids.is_empty() {
+                    Ok(Vec::new())
+                } else {
+                    s.uid_fetch(&uids, "(UID RFC822.SIZE)")
+                }
             })
-            .map_err(backend)?;
-        uids.sort_unstable();
+            .map_err(backend)?
+            .iter()
+            .filter_map(|item| Some((item.uid()?, item.size().unwrap_or(0))))
+            .collect();
         let mut written = 0u32;
-        for chunk in uids.chunks(CHUNK) {
+        for chunk in export_chunks(sizes, EXPORT_CHUNK_BYTES, EXPORT_CHUNK_COUNT) {
             let mut items = account
                 .run(Lane::User, |s| {
                     ensure_selected(s, &mailbox, known)?;
-                    s.uid_fetch(chunk, "(UID INTERNALDATE BODY.PEEK[])")
+                    s.uid_fetch(&chunk, "(UID INTERNALDATE BODY.PEEK[])")
                 })
                 .map_err(backend)?;
             items.sort_by_key(FetchItem::uid);
@@ -1928,7 +2103,7 @@ impl Router {
     ///
     /// Message hors d'« Éléments supprimés » ([`MailError::InvalidTarget`]) ou
     /// introuvable ; rien n'est alors déplacé.
-    pub fn restore(&self, journal: &mut Journal, ids: &[MessageId]) -> Result<RestoreReport, MailError> {
+    pub fn restore(&self, journal: &Mutex<Journal>, ids: &[MessageId]) -> Result<RestoreReport, MailError> {
         let mut sources: Vec<TrashGroup> = Vec::new();
         for &id in ids {
             let r = self.imap_ref(id)?;
@@ -2013,21 +2188,48 @@ impl Router {
     /// ces dossiers chez Thunderbird (relecture complète n° 40). Renvoie le
     /// nombre de messages supprimés ; les autres dossiers sont refusés.
     pub fn delete_forever(&self, ids: &[MessageId]) -> Result<u32, MailError> {
-        for &id in ids {
-            let r = self.imap_ref(id)?;
-            let role = self.folder(&format!("{}:{}", r.account, r.mailbox)).map(|f| f.role);
+        let groups = self.by_folder(ids)?;
+        for (account, mailbox, _) in &groups {
+            let role = self.folder(&format!("{account}:{mailbox}")).map(|f| f.role);
             if !matches!(role, Some(FolderRole::Trash | FolderRole::Junk)) {
                 return Err(MailError::InvalidTarget(
                     tr!("Seuls les éléments supprimés et le courrier indésirable peuvent être supprimés définitivement.").into(),
                 ));
             }
         }
+        // Une commande par dossier (découpée par `imap-lite`), et non plus un
+        // `STORE` et un `EXPUNGE` par message (audit P4).
         let mut removed = 0u32;
-        for &id in ids {
-            self.remove(id)?;
-            removed += 1;
+        for (account, mailbox, uids) in groups {
+            let known = self.known_validity(&account, &mailbox);
+            self.imap_account(&account)?
+                .run(Lane::User, |s| {
+                    ensure_selected(s, &mailbox, known)?;
+                    s.uid_store(&uids, "+FLAGS.SILENT (\\Deleted)")?;
+                    s.uid_expunge(&uids)
+                })
+                .map_err(backend)?;
+            self.cache().delete_messages(&account, &mailbox, &uids).map_err(backend)?;
+            removed = removed.saturating_add(u32::try_from(uids.len()).unwrap_or(u32::MAX));
         }
         Ok(removed)
+    }
+
+    /// Messages regroupés par compte et dossier, dans l'ordre de `ids`.
+    fn by_folder(&self, ids: &[MessageId]) -> Result<Vec<(String, String, Vec<u32>)>, MailError> {
+        let mut groups: Vec<(String, String, Vec<u32>)> = Vec::new();
+        let mut index: std::collections::HashMap<(String, String), usize> = std::collections::HashMap::new();
+        for &id in ids {
+            let r = self.imap_ref(id)?;
+            let key = (r.account.clone(), r.mailbox.clone());
+            if let Some(group) = index.get(&key).and_then(|&i| groups.get_mut(i)) {
+                group.2.push(r.uid);
+            } else {
+                index.insert(key, groups.len());
+                groups.push((r.account, r.mailbox, vec![r.uid]));
+            }
+        }
+        Ok(groups)
     }
 
     // ------------------------------------------------------------ envoi
@@ -2325,77 +2527,64 @@ impl Router {
 
     /// Recherche dans tous les dossiers de tous les comptes (sauf corbeille et
     /// indésirables), sur les serveurs (`UID SEARCH`, critères de
-    /// [`SearchQuery`], lot E7). Les comptes injoignables sont signalés sans
-    /// bloquer les autres.
+    /// [`SearchQuery`], lot E7), en [`SEARCH_BUDGET`] au plus. Les comptes
+    /// injoignables sont signalés sans bloquer les autres.
     pub fn search(&self, query: &SearchQuery) -> SearchReport {
-        type PerFolder = Vec<(String, FolderRole, Vec<FetchItem>)>;
-        let mut report = SearchReport { results: Vec::new(), errors: Vec::new() };
+        self.search_within(query, SEARCH_BUDGET)
+    }
+
+    /// Recherche sur les serveurs en `budget` au plus (lot J14). Chaque compte
+    /// cherche dans son propre fil, dossier par dossier, les plus utiles
+    /// d'abord ; la connexion de synchronisation est rendue entre deux
+    /// dossiers (la synchronisation n'attend plus la fin de la recherche), et
+    /// un dossier trop lent n'est pas refait. Passé `budget`, les résultats
+    /// reçus sont rendus ; les fils finissent leur dossier en cours, puis
+    /// s'arrêtent.
+    fn search_within(&self, query: &SearchQuery, budget: std::time::Duration) -> SearchReport {
+        use std::sync::mpsc;
+        use std::time::Instant;
+        let mut report = SearchReport { results: Vec::new(), errors: Vec::new(), unfinished: 0 };
         if query.is_empty() {
             return report;
         }
-        let keys = imap_search_keys(query);
+        let keys = Arc::new(imap_search_keys(query));
+        let deadline = Instant::now() + budget;
+        let accounts = self.all_accounts();
+        let (tx, rx) = mpsc::channel::<SearchStep>();
+        for account in &accounts {
+            let (account, keys, tx) = (Arc::clone(account), Arc::clone(&keys), tx.clone());
+            std::thread::spawn(move || search_account(&account, &keys, deadline, &tx));
+        }
+        drop(tx);
         // (compte, dossier, rôle, en-tête, Message-ID)
         let mut found: Vec<(String, String, FolderRole, Header, String)> = Vec::new();
-        // Tous les comptes en même temps, chacun sur sa connexion de synchronisation.
-        let accounts = self.all_accounts();
-        let per_account: Vec<(String, Result<PerFolder, String>)> = std::thread::scope(|scope| {
-            let handles: Vec<_> = accounts
-                .iter()
-                .map(|account| {
-                    let keys = &keys;
-                    scope.spawn(move || {
-                        let folders: Vec<(String, FolderRole)> = account
-                            .folders()
-                            .iter()
-                            .filter(|f| !matches!(f.role, FolderRole::Trash | FolderRole::Junk) && f.total > 0)
-                            .map(|f| (f.path.clone(), f.role))
-                            .collect();
-                        let result = account.run(Lane::Sync, |s| {
-                            let mut out = Vec::new();
-                            for (path, role) in &folders {
-                                match s.select(path) {
-                                    Ok(_) => {}
-                                    Err(e) if e.is_connection_lost() => return Err(e),
-                                    Err(_) => continue,
-                                }
-                                let uids = match s.uid_search_keys(keys) {
-                                    Ok(uids) => uids,
-                                    Err(e) if e.is_connection_lost() => return Err(e),
-                                    Err(_) => continue, // critère refusé par ce dossier
-                                };
-                                let recent: Vec<u32> = uids.iter().rev().take(SEARCH_PER_FOLDER).copied().collect();
-                                if recent.is_empty() {
-                                    continue;
-                                }
-                                let items = s.uid_fetch(&recent, SEARCH_QUERY)?;
-                                out.push((path.clone(), *role, items));
-                            }
-                            Ok(out)
-                        });
-                        (account.config.id.clone(), result)
-                    })
-                })
-                .collect();
-            handles.into_iter().filter_map(|h| h.join().ok()).collect()
-        });
-        for (account_id, result) in per_account {
-            match result {
-                Ok(per_folder) => {
-                    for (path, role, items) in per_folder {
-                        for item in &items {
-                            let Some(header) = header_from(item) else { continue };
-                            // Pas de critère IMAP pour les pièces jointes : tri sur l'en-tête lu.
-                            if query.attachment && !header.has_attachments {
-                                continue;
-                            }
-                            let mid = item.body("BODY[HEADER").and_then(|h| compose::header_value(h, "Message-ID")).unwrap_or_default();
-                            found.push((account_id.clone(), path.clone(), role, header, mid));
+        let (mut planned, mut searched, mut abandoned, mut running) = (0, 0, 0, accounts.len());
+        while running > 0 {
+            // Temps écoulé : les dossiers en cours et suivants restent non parcourus.
+            let Ok(step) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) else { break };
+            match step {
+                SearchStep::Planned(n) => planned += n,
+                SearchStep::Searched(hit) => {
+                    searched += 1;
+                    let Some((account_id, path, role, items)) = hit else { continue };
+                    for item in &items {
+                        let Some(header) = header_from(item) else { continue };
+                        // Pas de critère IMAP pour les pièces jointes : tri sur l'en-tête lu.
+                        if query.attachment && !header.has_attachments {
+                            continue;
                         }
+                        let mid = item.body("BODY[HEADER").and_then(|h| compose::header_value(h, "Message-ID")).unwrap_or_default();
+                        found.push((account_id.clone(), path.clone(), role, header, mid));
                     }
                 }
-                Err(message) => report.errors.push(AccountError { account_id, message }),
+                SearchStep::Failed { account_id, message, remaining } => {
+                    abandoned += remaining;
+                    report.errors.push(AccountError { account_id, message });
+                }
+                SearchStep::Done => running -= 1,
             }
         }
+        report.unfinished = planned.saturating_sub(searched + abandoned);
         // Un même message dans plusieurs dossiers (« Tous les messages » de Gmail) :
         // on garde son dossier le plus parlant.
         found.sort_by_key(|(_, _, role, _, _)| matches!(role, FolderRole::Archive));
@@ -2415,14 +2604,17 @@ impl Router {
     /// de suite de leur dossier et seront faits au retour du réseau.
     pub fn move_or_queue(
         &self,
-        journal: &mut Journal,
+        journal: &Mutex<Journal>,
         ids: &[MessageId],
         target: Option<&str>,
         role: Option<FolderRole>,
     ) -> Result<MoveReport, MailError> {
+        // Journal partagé, verrouillé un instant à chaque étape : un long
+        // déplacement entre comptes ne bloque plus les autres (audit P4).
+        let mut shared = SharedJournal(journal);
         let mut report = match (target, role) {
-            (Some(target), _) => mail_core::move_messages(&mut self.backend(), journal, ids, target)?,
-            (None, Some(role)) => mail_core::move_to_role(&mut self.backend(), journal, ids, role)?,
+            (Some(target), _) => mail_core::move_messages(&mut self.backend(), &mut shared, ids, target)?,
+            (None, Some(role)) => mail_core::move_to_role(&mut self.backend(), &mut shared, ids, role)?,
             (None, None) => return Err(MailError::InvalidTarget(tr!("destination absente").into())),
         };
         let failed = std::mem::take(&mut report.failed);
@@ -2437,7 +2629,7 @@ impl Router {
             };
             // Copie déjà faite, suppression de la source en échec : le journal
             // s'en charge (relecture Y2) ; surtout pas d'action « déplacer » en plus.
-            let journaled = journal.unfinished().any(|e| e.source_id == f.id);
+            let journaled = shared.is_moving(f.id);
             if !journaled {
                 let destination = match (target, role) {
                     (Some(t), _) => Some(t.to_string()),
@@ -2494,10 +2686,11 @@ impl Router {
     /// Au retour du réseau : reprend les déplacements interrompus, puis rejoue
     /// les actions faites hors connexion, dans l'ordre. S'arrête à la première
     /// erreur réseau (tout le reste attend la prochaine fois).
-    pub fn flush_pending(&self, journal: &mut Journal) -> FlushReport {
+    pub fn flush_pending(&self, journal: &Mutex<Journal>) -> FlushReport {
         let mut report = FlushReport::default();
-        if journal.unfinished().next().is_some() {
-            let resumed = mail_core::resume_moves(&mut self.backend(), journal);
+        let mut shared = SharedJournal(journal);
+        if shared.unfinished_count() > 0 {
+            let resumed = mail_core::resume_moves(&mut self.backend(), &mut shared);
             report.done = report.done.saturating_add(u32::try_from(resumed.moved.len()).unwrap_or(u32::MAX));
         }
         // Copies de messages envoyés : le premier essai cherche déjà la copie par
@@ -2513,7 +2706,7 @@ impl Router {
             };
             match outcome {
                 Err(e) if is_network_error(&e) => {
-                    report.remaining = self.pending_count().saturating_add(u32::try_from(journal.unfinished().count()).unwrap_or(u32::MAX));
+                    report.remaining = self.pending_count().saturating_add(u32::try_from(shared.unfinished_count()).unwrap_or(u32::MAX));
                     return report;
                 }
                 Err(e) => crate::diag::report(&format_args!("copie d'un message envoyé abandonnée : {e}")),
@@ -2543,14 +2736,16 @@ impl Router {
                             .uids
                             .iter()
                             .map(|&uid| c.id_for(ImapRef { account: action.account.clone(), mailbox: action.mailbox.clone(), uid }))
-                            // Déjà copiés, source en cours de suppression : le journal termine.
-                            .filter(|id| !journal.unfinished().any(|e| e.source_id == *id))
                             .collect()
                     };
+                    // Déjà copiés, source en cours de suppression : le journal termine.
+                    // Verrou du cache rendu avant celui du journal (qui prend ensuite
+                    // celui du cache pour s'enregistrer : jamais dans l'autre ordre).
+                    let ids: Vec<MessageId> = ids.into_iter().filter(|id| !shared.is_moving(*id)).collect();
                     if ids.is_empty() {
                         Ok(())
                     } else {
-                        match mail_core::move_messages(&mut self.backend(), journal, &ids, &action.arg) {
+                        match mail_core::move_messages(&mut self.backend(), &mut shared, &ids, &action.arg) {
                             // Panne réseau : l'action attend le retour du réseau. Refus du
                             // serveur (dossier supprimé ailleurs…) : le message réapparaît
                             // dans son dossier (Y4, même quand le dossier cible est encore
@@ -2579,7 +2774,7 @@ impl Router {
                 }
             }
         }
-        report.remaining = self.pending_count().saturating_add(u32::try_from(journal.unfinished().count()).unwrap_or(u32::MAX));
+        report.remaining = self.pending_count().saturating_add(u32::try_from(shared.unfinished_count()).unwrap_or(u32::MAX));
         report
     }
 
@@ -2646,11 +2841,11 @@ impl Router {
 impl Router {
     pub fn folder(&self, id: &str) -> Option<Folder> {
         let (account_id, _) = id.split_once(':')?;
-        self.imap_account(account_id).ok()?.folders().into_iter().find(|f| f.id == id)
+        self.imap_account(account_id).ok()?.find_folder(|f| f.id == id)
     }
 
     pub fn folder_by_role(&self, account_id: &str, role: FolderRole) -> Option<FolderId> {
-        self.imap_account(account_id).ok()?.folders().into_iter().find(|f| f.role == role).map(|f| f.id)
+        self.imap_account(account_id).ok()?.find_folder(|f| f.role == role).map(|f| f.id)
     }
 
     pub fn message_location(&self, id: MessageId) -> mail_core::Result<FolderId> {
@@ -2659,15 +2854,7 @@ impl Router {
 
     pub fn native_move(&self, ids: &[MessageId], target: &str) -> mail_core::Result<Vec<MessageId>> {
         let (_, target_mailbox) = Self::split_folder(target)?;
-        let mut groups: Vec<(String, String, Vec<u32>)> = Vec::new();
-        for &id in ids {
-            let r = self.imap_ref(id)?;
-            match groups.iter_mut().find(|g| g.0 == r.account && g.1 == r.mailbox) {
-                Some(g) => g.2.push(r.uid),
-                None => groups.push((r.account, r.mailbox, vec![r.uid])),
-            }
-        }
-        for (account, mailbox, uids) in groups {
+        for (account, mailbox, uids) in self.by_folder(ids)? {
             let known = self.known_validity(&account, &mailbox);
             // Vers « Éléments supprimés » : dossier d'origine noté pour « Restaurer ».
             let to_trash = mailbox != target_mailbox && self.folder_by_role(&account, FolderRole::Trash).as_deref() == Some(target);
@@ -2687,10 +2874,9 @@ impl Router {
                 })
                 .map_err(backend)?;
             // Les messages ont quitté ce dossier ; la cible les recevra à sa synchronisation.
+            // Une seule transaction pour tout le dossier (audit P4).
             let mut c = self.cache();
-            for uid in &uids {
-                c.delete_message(&account, &mailbox, *uid).map_err(backend)?;
-            }
+            c.delete_messages(&account, &mailbox, &uids).map_err(backend)?;
             if !origins.is_empty() {
                 let message_ids: Vec<String> = origins.into_iter().map(|(_, m)| m).collect();
                 if let Err(e) = c.trash_origins_put(&account, &mailbox, &message_ids, now()) {
@@ -2811,6 +2997,34 @@ impl MailBackend for Backend<'_> {
     }
 }
 
+/// Taille d'une tranche d'export mbox, au plus (sauf un message seul plus gros).
+const EXPORT_CHUNK_BYTES: u64 = 16 << 20;
+/// Messages par tranche d'export, au plus.
+const EXPORT_CHUNK_COUNT: usize = 50;
+
+/// Tranches d'UID pour l'export, du plus ancien au plus récent : `max_bytes`
+/// (d'après `RFC822.SIZE`) ou `max_count` messages au plus ; un message plus
+/// gros que `max_bytes` forme une tranche à lui seul (audit P7).
+fn export_chunks(mut sizes: Vec<(u32, u32)>, max_bytes: u64, max_count: usize) -> Vec<Vec<u32>> {
+    sizes.sort_unstable_by_key(|&(uid, _)| uid);
+    sizes.dedup_by_key(|&mut (uid, _)| uid);
+    let mut chunks: Vec<Vec<u32>> = Vec::new();
+    let (mut current, mut bytes) = (Vec::new(), 0u64);
+    for (uid, size) in sizes {
+        let size = u64::from(size);
+        if !current.is_empty() && (bytes + size > max_bytes || current.len() >= max_count) {
+            chunks.push(std::mem::take(&mut current));
+            bytes = 0;
+        }
+        current.push(uid);
+        bytes += size;
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
+}
+
 /// Adresse de l'expéditeur pour la ligne `From ` d'une boîte mbox : celle entre
 /// `<` et `>` de l'en-tête `From`, sinon l'en-tête entier ; vide s'il manque.
 fn envelope_sender(raw: &[u8]) -> String {
@@ -2823,6 +3037,56 @@ fn envelope_sender(raw: &[u8]) -> String {
 
 /// Critères `UID SEARCH` d'une recherche (lot E7). Les pièces jointes n'ont pas
 /// de critère IMAP : elles sont triées après lecture des en-têtes.
+/// Recherche d'un compte, dans son propre fil (lot J14) : un dossier à la
+/// fois sur la connexion de synchronisation, rendue entre deux dossiers ;
+/// arrêt à `deadline`, et dès qu'une erreur de connexion survient.
+fn search_account(account: &ImapAccount, keys: &[SearchKey], deadline: std::time::Instant, tx: &std::sync::mpsc::Sender<SearchStep>) {
+    let mut folders: Vec<(String, FolderRole)> = account
+        .folders()
+        .iter()
+        .filter(|f| !matches!(f.role, FolderRole::Trash | FolderRole::Junk) && f.total > 0)
+        .map(|f| (f.path.clone(), f.role))
+        .collect();
+    folders.sort_by(|a, b| search_rank(a.1).cmp(&search_rank(b.1)).then_with(|| a.0.cmp(&b.0)));
+    // Appelant parti (temps écoulé) : les envois échouent, sans importance.
+    let _ = tx.send(SearchStep::Planned(folders.len()));
+    for (index, (path, role)) in folders.iter().enumerate() {
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
+        // Un seul essai : un dossier qui dépasse le délai de lecture n'est pas refait.
+        let result = account.run_tries(Lane::Sync, 1, |s| {
+            match s.select(path) {
+                Ok(_) => {}
+                Err(e) if e.is_connection_lost() => return Err(e),
+                Err(_) => return Ok(None),
+            }
+            let uids = match s.uid_search_keys(keys) {
+                Ok(uids) => uids,
+                Err(e) if e.is_connection_lost() => return Err(e),
+                Err(_) => return Ok(None), // critère refusé par ce dossier
+            };
+            let recent: Vec<u32> = uids.iter().rev().take(SEARCH_PER_FOLDER).copied().collect();
+            if recent.is_empty() {
+                return Ok(None);
+            }
+            s.uid_fetch(&recent, SEARCH_QUERY).map(Some)
+        });
+        match result {
+            Ok(items) => {
+                let hit = items.map(|items| (account.config.id.clone(), path.clone(), *role, items));
+                let _ = tx.send(SearchStep::Searched(hit));
+            }
+            Err(message) => {
+                let remaining = folders.len() - index;
+                let _ = tx.send(SearchStep::Failed { account_id: account.config.id.clone(), message, remaining });
+                break;
+            }
+        }
+    }
+    let _ = tx.send(SearchStep::Done);
+}
+
 fn imap_search_keys(q: &SearchQuery) -> Vec<SearchKey> {
     let text = |name: &'static str, value: &String| SearchKey::Text(name, value.clone());
     let mut keys: Vec<SearchKey> = Vec::new();
@@ -2892,6 +3156,10 @@ mod tests {
         refuse_move: bool,
         /// Réponse à `UID FETCH` (lignes `* n FETCH …`).
         fetch: String,
+        /// Débuts de commande (sans l'étiquette) refusés par `NO`.
+        refused: Vec<String>,
+        /// Dossier dont la sélection fait attendre (serveur lent, lot J14).
+        slow_select: Option<(String, std::time::Duration)>,
         received: Arc<Mutex<Vec<String>>>,
     }
 
@@ -2910,6 +3178,8 @@ mod tests {
                 found,
                 refuse_move,
                 fetch,
+                refused: Vec::new(),
+                slow_select: None,
                 received: Arc::clone(received),
             };
             let stream: Box<dyn crate::transport::Stream> = Box::new(server);
@@ -2927,6 +3197,46 @@ mod tests {
                 found,
                 refuse_move: false,
                 fetch,
+                refused: Vec::new(),
+                slow_select: None,
+                received: Arc::clone(&received),
+            };
+            let stream: Box<dyn crate::transport::Stream> = Box::new(server);
+            (imap_lite::Client::connect(stream).expect("accueil du serveur joué"), received)
+        }
+
+        /// Serveur dont la sélection du dossier `folder` prend `delay` (lot J14).
+        fn slow(found: Option<u32>, fetch: String, folder: &str, delay: std::time::Duration) -> (Session, Arc<Mutex<Vec<String>>>) {
+            let received = Arc::new(Mutex::new(Vec::new()));
+            let server = Scripted {
+                to_client: b"* OK [CAPABILITY IMAP4rev1 MOVE UIDPLUS] pret\r\n".iter().copied().collect(),
+                line: Vec::new(),
+                literal: 0,
+                pending: String::new(),
+                found,
+                refuse_move: false,
+                fetch,
+                refused: Vec::new(),
+                slow_select: Some((folder.to_owned(), delay)),
+                received: Arc::clone(&received),
+            };
+            let stream: Box<dyn crate::transport::Stream> = Box::new(server);
+            (imap_lite::Client::connect(stream).expect("accueil du serveur joué"), received)
+        }
+
+        /// Serveur qui refuse par `NO` les commandes commençant par `refused`.
+        fn refusing(refused: &[&str]) -> (Session, Arc<Mutex<Vec<String>>>) {
+            let received = Arc::new(Mutex::new(Vec::new()));
+            let server = Scripted {
+                to_client: b"* OK [CAPABILITY IMAP4rev1 MOVE UIDPLUS] pret\r\n".iter().copied().collect(),
+                line: Vec::new(),
+                literal: 0,
+                pending: String::new(),
+                found: None,
+                refuse_move: false,
+                fetch: String::new(),
+                refused: refused.iter().map(|start| (*start).to_string()).collect(),
+                slow_select: None,
                 received: Arc::clone(&received),
             };
             let stream: Box<dyn crate::transport::Stream> = Box::new(server);
@@ -2943,6 +3253,16 @@ mod tests {
                 received.push(format!("{verb} {next}"));
                 // Commande entière (sans l'étiquette), pour vérifier ses arguments.
                 received.push(format!("> {}", text.split_once(' ').map_or(text, |(_, rest)| rest)));
+            }
+            let rest = text.split_once(' ').map_or("", |(_, rest)| rest);
+            if let Some((folder, delay)) = &self.slow_select {
+                if verb == "SELECT" && rest.contains(folder.as_str()) {
+                    std::thread::sleep(*delay);
+                }
+            }
+            if self.refused.iter().any(|start| rest.starts_with(start.as_str())) {
+                self.to_client.extend(format!("{tag} NO refusé\r\n").bytes());
+                return;
             }
             let reply = match (verb.as_str(), next.as_str()) {
                 ("SELECT" | "EXAMINE", _) => format!("* 1 EXISTS\r\n* OK [UIDVALIDITY 7] ok\r\n{tag} OK [READ-WRITE] ok\r\n"),
@@ -3084,6 +3404,42 @@ mod tests {
         raw
     }
 
+    /// Message à deux pièces jointes, lu par `attachment` sur un serveur joué ;
+    /// rend le nombre de `UID FETCH` reçus.
+    fn attachments_fetches(validity: Option<u32>) -> usize {
+        let body = "Subject: Devis\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n\
+                    --b\r\nContent-Type: text/plain\r\n\r\nCorps\r\n\
+                    --b\r\nContent-Type: text/plain; name=a.txt\r\nContent-Disposition: attachment; filename=a.txt\r\n\r\nA\r\n\
+                    --b\r\nContent-Type: text/plain; name=b.txt\r\nContent-Disposition: attachment; filename=b.txt\r\n\r\nB\r\n\
+                    --b--\r\n";
+        let fetch = format!("* 1 FETCH (UID 5 FLAGS (\\Seen) BODY[] {{{}}}\r\n{body})\r\n", body.len());
+        let cache = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        let tree = build_folders("mailo", vec![entry("INBOX", &[])]);
+        lock_cache(&cache).save_folders("mailo", &tree).unwrap();
+        if let Some(validity) = validity {
+            lock_cache(&cache).set_uid_validity("mailo", "INBOX", validity).unwrap();
+        }
+        let router = Router::new(vec![config("mailo")], Arc::clone(&cache));
+        let id = lock_cache(&cache).id_for(ImapRef { account: "mailo".into(), mailbox: "INBOX".into(), uid: 5 });
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&received);
+        TEST_SERVER.with(|s| *s.borrow_mut() = Some(Box::new(move || Scripted::open(None, false, fetch.clone(), &log))));
+        let names: Vec<String> = (0..4).filter_map(|index| router.attachment(id, index).ok()).map(|a| a.name).collect();
+        TEST_SERVER.with(|s| *s.borrow_mut() = None);
+        assert!(names.contains(&"a.txt".to_owned()) && names.contains(&"b.txt".to_owned()), "pièces lues : {names:?}");
+        count(&received, "UID FETCH")
+    }
+
+    #[test]
+    fn p5_tout_enregistrer_telecharge_une_fois() {
+        assert_eq!(attachments_fetches(Some(7)), 1, "un seul téléchargement pour toutes les pièces");
+    }
+
+    #[test]
+    fn p5_sans_uidvalidity_connue_rien_n_est_garde() {
+        assert_eq!(attachments_fetches(None), 4, "UID sans UIDVALIDITY : relu à chaque fois");
+    }
+
     #[test]
     fn b5_drapeaux_seuls_avant_le_corps() {
         // Un autre appareil marque le message lu pendant la lecture : la réponse
@@ -3131,6 +3487,139 @@ mod tests {
     }
 
     #[test]
+    fn p2_reste_a_telecharger_recompte_le_seul_dossier_en_cours() {
+        let cache = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        let router = Router::new(vec![config("mailo")], Arc::clone(&cache));
+        let header = |uid: u32| Header {
+            uid,
+            from_name: String::new(),
+            from_email: "a@example.com".into(),
+            subject: format!("n° {uid}"),
+            preview: String::new(),
+            date: i64::from(uid),
+            flags: Flags::default(),
+            has_attachments: false,
+        };
+        lock_cache(&cache).upsert_headers("mailo", "INBOX", &[header(1), header(2)]).unwrap();
+        let mut st = Prefetch {
+            queue: std::collections::VecDeque::new(),
+            synced: HashSet::default(),
+            backfilled: HashSet::default(),
+            resync: false,
+            counts: [("mailo:INBOX".to_string(), 0), ("mailo:Archive".to_string(), 7)].into_iter().collect(),
+        };
+        assert_eq!(router.remaining_after(&mut st, "mailo:INBOX"), 9, "2 recomptés dans INBOX, 7 gardés pour Archive");
+    }
+
+    #[test]
+    fn p7_export_mbox_par_taille() {
+        const MO: u32 = 1 << 20;
+        // Ordre du serveur quelconque : tranches du plus ancien au plus récent.
+        let sizes = vec![(4, 2 * MO), (1, 5 * MO), (2, 6 * MO), (3, 40 * MO), (5, 1), (6, 1), (7, 1)];
+        let chunks = export_chunks(sizes, 16 << 20, 3);
+        assert_eq!(chunks, vec![vec![1, 2], vec![3], vec![4, 5, 6], vec![7]], "16 Mo ou 3 messages au plus ; un gros message seul");
+        assert_eq!(export_chunks(Vec::new(), 16 << 20, 3), Vec::<Vec<u32>>::new());
+    }
+
+    #[test]
+    fn j11b_compte_sans_lecture_hors_connexion() {
+        // En-têtes en cache, contenu absent : rien à télécharger d'avance, et
+        // l'étape de téléchargement ne demande aucun message au serveur.
+        let cache = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        let tree = build_folders("mailo", vec![entry("INBOX", &[])]);
+        lock_cache(&cache).save_folders("mailo", &tree).unwrap();
+        let header = Header {
+            uid: 1,
+            from_name: String::new(),
+            from_email: "a@example.com".into(),
+            subject: "n° 1".into(),
+            preview: String::new(),
+            date: 1,
+            flags: Flags::default(),
+            has_attachments: false,
+        };
+        lock_cache(&cache).upsert_headers("mailo", "INBOX", &[header]).unwrap();
+        let router = Router::new(vec![AccountConfig { offline_bodies: false, ..config("mailo") }], Arc::clone(&cache));
+        assert_eq!(router.count_without_body("mailo:INBOX"), 0);
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&received);
+        TEST_SERVER.with(|s| *s.borrow_mut() = Some(Box::new(move || Scripted::open(None, false, String::new(), &log))));
+        // Tour déjà commencé sur ce seul dossier (pas de relecture de l'arborescence).
+        *guard(&router.prefetch) = Some(Prefetch {
+            queue: ["mailo:INBOX".to_string()].into_iter().collect(),
+            synced: HashSet::default(),
+            backfilled: HashSet::default(),
+            resync: false,
+            counts: std::collections::HashMap::new(),
+        });
+        let report = router.prefetch_step(false);
+        TEST_SERVER.with(|s| *s.borrow_mut() = None);
+        let report = report.expect("étape sans erreur");
+        assert!(report.done && report.fetched == 0 && report.remaining == 0, "{report:?}");
+        assert_eq!(count(&received, "UID FETCH"), 0, "aucun contenu demandé : {:?}", received.lock().unwrap());
+        // Activé : le même message est à télécharger.
+        let router = Router::new(vec![config("mailo")], Arc::clone(&cache));
+        assert_eq!(router.count_without_body("mailo:INBOX"), 1);
+    }
+
+    #[test]
+    fn p4_suppression_definitive_groupee_par_dossier() {
+        // Trois messages d'« Éléments supprimés » et un du courrier indésirable :
+        // une commande par dossier, plus un aller-retour par message.
+        let cache = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        let tree = build_folders("mailo", vec![entry("INBOX", &[]), entry("Trash", &["\\Trash"]), entry("Junk", &["\\Junk"])]);
+        lock_cache(&cache).save_folders("mailo", &tree).unwrap();
+        let router = Router::new(vec![config("mailo")], Arc::clone(&cache));
+        let id = |mailbox: &str, uid: u32| lock_cache(&cache).id_for(ImapRef { account: "mailo".into(), mailbox: mailbox.into(), uid });
+        let ids = [id("Trash", 5), id("Trash", 6), id("Junk", 2), id("Trash", 9)];
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&received);
+        TEST_SERVER.with(|s| *s.borrow_mut() = Some(Box::new(move || Scripted::open(None, false, String::new(), &log))));
+        let removed = router.delete_forever(&ids);
+        let refused = router.delete_forever(&[id("INBOX", 1)]);
+        TEST_SERVER.with(|s| *s.borrow_mut() = None);
+
+        assert_eq!(removed.unwrap(), 4);
+        assert_eq!(count(&received, "UID STORE"), 2, "un STORE par dossier : {:?}", received.lock().unwrap());
+        assert_eq!(count(&received, "UID EXPUNGE"), 2, "un EXPUNGE par dossier");
+        assert!(received.lock().unwrap().iter().any(|c| c.starts_with("> UID STORE 5:6,9 ")), "{:?}", received.lock().unwrap());
+        assert!(matches!(refused, Err(MailError::InvalidTarget(_))), "hors corbeille : refusé");
+    }
+
+    #[test]
+    fn s7_arborescence_profondeur_bornee() {
+        let names: Vec<String> = (1..=200).map(|n| vec!["d"; n].join("/")).collect();
+        let entries = names.iter().map(|n| entry(n, &[])).collect();
+        let folders = build_folders("mailo", entries);
+        assert_eq!(folders.len(), usize::try_from(MAX_FOLDER_DEPTH).unwrap(), "niveaux au-delà ignorés");
+        assert!(folders.iter().all(|f| f.depth < MAX_FOLDER_DEPTH));
+    }
+
+    #[test]
+    fn b2_message_ajoute_pendant_la_synchronisation_garde() {
+        // Cache lu au début : 1, 2, 3 ; le serveur n'a plus le 2. Un brouillon
+        // (UID 9) enregistré pendant l'échange n'est pas dans `cached` : gardé.
+        assert_eq!(missing_since(&[1, 2, 3], &[1, 3, 9]), [2]);
+        assert_eq!(missing_since(&[1, 2], &[]), [1, 2], "dossier vidé sur le serveur");
+    }
+
+    #[test]
+    fn b8_renommage_rejoue_apres_une_coupure() {
+        // Le premier RENAME avait abouti avant la coupure : le second est refusé,
+        // mais « Archives » existe et « Clients » n'existe plus, c'est fait.
+        let (mut s, _) = Scripted::refusing(&["RENAME", "STATUS \"Clients\""]);
+        let mut attempts = 1;
+        assert!(rename_once(&mut s, &mut attempts, "Clients", "Archives").is_ok(), "renommage déjà fait");
+        // Premier essai refusé, ou ancien nom encore présent : l'erreur remonte.
+        let (mut s, _) = Scripted::refusing(&["RENAME"]);
+        let mut attempts = 0;
+        assert!(rename_once(&mut s, &mut attempts, "Clients", "Archives").is_err(), "premier essai refusé");
+        let (mut s, _) = Scripted::refusing(&["RENAME"]);
+        let mut attempts = 1;
+        assert!(rename_once(&mut s, &mut attempts, "Clients", "Archives").is_err(), "« Clients » existe encore");
+    }
+
+    #[test]
     fn y4_deplacement_refuse_au_retour_du_reseau() {
         // Hors ligne, un ancien message a été déplacé vers « Projets » (retiré
         // d'avance de la boîte) ; « Projets » a été supprimé depuis un autre
@@ -3159,7 +3648,7 @@ mod tests {
         let received = Arc::new(Mutex::new(Vec::new()));
         let log = Arc::clone(&received);
         TEST_SERVER.with(|s| *s.borrow_mut() = Some(Box::new(move || Scripted::open(None, true, fetch.clone(), &log))));
-        let report = router.flush_pending(&mut Journal::default());
+        let report = router.flush_pending(&Mutex::new(Journal::default()));
         TEST_SERVER.with(|s| *s.borrow_mut() = None);
 
         assert_eq!(report.done, 1, "action retirée de la file");
@@ -3206,8 +3695,8 @@ mod tests {
         );
 
         received.lock().unwrap().clear();
-        let report = router.restore(&mut Journal::default(), &[id("Trash", 5), id("Trash", 6), id("Trash", 7)]);
-        let refused = router.restore(&mut Journal::default(), &[id("INBOX", 9)]);
+        let report = router.restore(&Mutex::new(Journal::default()), &[id("Trash", 5), id("Trash", 6), id("Trash", 7)]);
+        let refused = router.restore(&Mutex::new(Journal::default()), &[id("INBOX", 9)]);
         TEST_SERVER.with(|s| *s.borrow_mut() = None);
 
         let report = report.unwrap();
@@ -3295,6 +3784,40 @@ mod tests {
         let info = selected(12, 7, Some(520));
         assert_eq!(flag_plan(Some(7), Some((500, Some(10))), &info, true, true), FlagPlan::Qresync { since: 500 });
         assert_eq!(flag_plan(Some(7), Some((500, Some(10))), &info, true, false), FlagPlan::Condstore { since: 500, fetch_flags: true });
+    }
+
+    #[test]
+    fn j14_recherche_bornee_malgre_un_dossier_lent() {
+        let cache = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        let router = Router::new(vec![config("mailo")], Arc::clone(&cache));
+        let account = Arc::clone(&router.all_accounts()[0]);
+        guard(&account.state).folders = build_folders("mailo", vec![entry("INBOX", &[]), entry("Lent", &[]), entry("Factures", &[])]);
+        let header = "Message-ID: <devis@x>\r\nSubject: Devis\r\n\r\n";
+        let fetch = format!("* 1 FETCH (UID 5 BODY[HEADER.FIELDS (MESSAGE-ID SUBJECT)] {{{}}}\r\n{header})\r\n", header.len());
+        let delay = std::time::Duration::from_millis(900);
+        let (session, received) = Scripted::slow(Some(5), fetch, "Lent", delay);
+        *account.sync.lock().unwrap() = Some(session);
+
+        let started = std::time::Instant::now();
+        let query = SearchQuery::parse("devis").unwrap();
+        let report = router.search_within(&query, std::time::Duration::from_millis(250));
+        assert!(started.elapsed() < delay, "rendu sans attendre le dossier lent : {:?}", started.elapsed());
+        let selected: Vec<String> = received.lock().unwrap().iter().filter(|l| l.starts_with("> SELECT")).cloned().collect();
+        assert!(selected.first().is_some_and(|l| l.contains("INBOX")), "boîte de réception d'abord : {selected:?}");
+        assert!(selected.get(1).is_some_and(|l| l.contains("Factures")), "puis par nom : {selected:?}");
+        assert_eq!(report.results.len(), 1, "même Message-ID dans deux dossiers : un seul résultat");
+        assert_eq!(report.unfinished, 1, "« Lent » non parcouru");
+        assert_eq!(report.errors.len(), 0, "{:?}", report.errors);
+        // Le dossier lent fini, la connexion de synchronisation est rendue.
+        std::thread::sleep(delay + std::time::Duration::from_millis(300));
+        assert!(account.sync.try_lock().is_ok(), "connexion de synchronisation libre");
+    }
+
+    #[test]
+    fn j14_dossiers_les_plus_utiles_d_abord() {
+        let mut roles = [FolderRole::Custom, FolderRole::Archive, FolderRole::Inbox, FolderRole::Drafts, FolderRole::Sent];
+        roles.sort_by_key(|r| search_rank(*r));
+        assert_eq!(roles, [FolderRole::Inbox, FolderRole::Sent, FolderRole::Archive, FolderRole::Drafts, FolderRole::Custom]);
     }
 
     fn entry(name: &str, attrs: &[&str]) -> (ListEntry, Option<MailboxStatus>) {
@@ -3397,6 +3920,7 @@ mod tests {
             oauth_client_id: String::new(),
             dav_url: String::new(),
             card_url: String::new(),
+            offline_bodies: true,
         }
     }
 

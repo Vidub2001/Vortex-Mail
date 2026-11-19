@@ -48,6 +48,8 @@ export interface GeneralSettings {
    * réception, les règles et les rappels continuent (lot B3).
    */
   keepInTray: boolean;
+  /** Signaler les nouvelles versions publiées (lot K1) : GitHub interrogé une fois par jour. */
+  checkUpdates: boolean;
 }
 
 const KEY = "vortex.general";
@@ -67,6 +69,7 @@ const DEFAULTS: GeneralSettings = {
   defaultReminder: 15,
   bodyMode: "original",
   keepInTray: true,
+  checkUpdates: true,
 };
 
 let cached: GeneralSettings | null = null;

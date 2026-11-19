@@ -2801,7 +2801,7 @@ body.resizing .splitter::after {
   box-shadow: var(--shadow16);
 }
 
-.address-suggestions button {
+.address-suggestion {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2817,14 +2817,40 @@ body.resizing .splitter::after {
   cursor: pointer;
 }
 
-.address-suggestions button.on,
-.address-suggestions button:hover {
+.address-suggestion.on,
+.address-suggestion:hover {
   background: var(--colorNeutralBackground1Hover);
 }
 
 .address-suggestions .muted {
   margin-left: auto;
   font-size: 12px;
+}
+
+/* Lot J13 : écarter une adresse collectée, croix visible au survol. */
+.address-forget {
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  border-radius: var(--borderRadiusSmall);
+  background: transparent;
+  color: var(--colorNeutralForeground3);
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.address-suggestion:not(:has(.muted)) .address-forget {
+  margin-left: auto;
+}
+
+.address-suggestion.on .address-forget,
+.address-suggestion:hover .address-forget {
+  visibility: visible;
+}
+
+.address-forget:hover {
+  background: var(--colorNeutralBackground1Pressed);
+  color: var(--colorNeutralForeground1);
 }
 
 /* Invitation dans un message */
@@ -2900,6 +2926,14 @@ body.resizing .splitter::after {
 }
 .invitation-note {
   font-weight: 400;
+}
+/* Invitation d'un autre organisateur que celui de l'agenda (audit S6). */
+.invitation-warning {
+  color: var(--colorStatusWarningForeground1);
+  font-weight: 600;
+}
+div.invitation-warning {
+  margin-left: 30px;
 }
 .invitation-actions {
   display: flex;
@@ -4235,4 +4269,84 @@ body.resizing-rows {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* =====================================================================
+   Indicateur d'activité (VortexSpinner) : trois arcs en tourbillon
+   ===================================================================== */
+
+.vortex-spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  vertical-align: middle;
+  color: var(--colorBrandForeground1);
+}
+
+.vortex-spinner svg {
+  width: var(--vortex-size, 16px);
+  height: var(--vortex-size, 16px);
+  flex: none;
+  overflow: visible;
+}
+
+.vortex-arc {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.vortex-arc-outer {
+  stroke-width: 2.4;
+  stroke-dasharray: 32 68;
+  animation: vortex-turn 1.6s cubic-bezier(0.55, 0.15, 0.45, 0.85) infinite;
+}
+
+.vortex-arc-middle {
+  stroke-width: 2.2;
+  stroke-dasharray: 45 55;
+  opacity: 0.75;
+  animation: vortex-turn 1.15s linear infinite reverse;
+}
+
+.vortex-arc-inner {
+  stroke-width: 2;
+  stroke-dasharray: 60 40;
+  opacity: 0.5;
+  animation: vortex-turn 0.8s linear infinite;
+}
+
+.vortex-spinner-label {
+  color: var(--colorNeutralForeground2);
+}
+
+/* Liste vide pendant une synchronisation ou une recherche : au centre. */
+.vortex-spinner.list-loading {
+  display: flex;
+  justify-content: center;
+}
+
+@keyframes vortex-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Moins d'animations demandées par le système : pas de rotation, une pulsation lente. */
+@media (prefers-reduced-motion: reduce) {
+  .vortex-arc {
+    animation: none;
+  }
+
+  .vortex-spinner svg {
+    animation: vortex-pulse 2s ease-in-out infinite;
+  }
+}
+
+@keyframes vortex-pulse {
+  50% {
+    opacity: 0.4;
+  }
 }

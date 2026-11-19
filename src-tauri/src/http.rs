@@ -9,6 +9,10 @@
 //! - redirections : `Authorization` et cookies jamais renvoyés à un autre
 //!   hôte, https → http refusé ;
 //! - réponse tronquée = erreur, jamais une réponse complète.
+//!
+//! Audit P7 : vers les serveurs de l'utilisateur (`WebDAV`, Outlook.com), la
+//! connexion reste ouverte pour les requêtes suivantes (réserve `pool`) ;
+//! chaque réponse est lue jusqu'à sa fin annoncée, sans attendre la fermeture.
 
 use std::fmt::Write as _;
 use std::io::{Read, Write};
@@ -185,22 +189,45 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
 /// Résout l'hôte et choisit l'adresse de connexion. En `PublicOnly`, toutes
 /// les adresses résolues doivent être publiques, et la connexion se fait à
 /// l'adresse vérifiée (pas de seconde résolution qui en donnerait une autre).
-fn resolve_addr(host: &str, port: u16, reach: Reach) -> Result<SocketAddr, String> {
+/// Adresses de `host`, toutes vérifiées : une seule adresse locale ou privée
+/// fait refuser un hôte d'image (relecture A2).
+fn resolve_addrs(host: &str, port: u16, reach: Reach) -> Result<Vec<SocketAddr>, String> {
     let bare = host.trim_start_matches('[').trim_end_matches(']');
     let addrs: Vec<SocketAddr> =
         (bare, port).to_socket_addrs().map_err(|e| tr!("serveur « {host} » introuvable : {e}", host = host, e = e))?.collect();
-    let first = *addrs.first().ok_or_else(|| tr!("serveur « {host} » introuvable", host = host))?;
+    if addrs.is_empty() {
+        return Err(tr!("serveur « {host} » introuvable", host = host));
+    }
     if reach == Reach::PublicOnly && addrs.iter().any(|a| !is_public(a.ip())) {
         return Err(tr!("adresse locale ou privée refusée : {host}", host = host));
     }
-    Ok(first)
+    Ok(addrs)
+}
+
+/// Première adresse de `host` qui répond (audit S7 : seule la première était
+/// essayée ; une adresse IPv6 injoignable rendait le serveur injoignable).
+fn connect_any(host: &str, addrs: &[SocketAddr], timeout: Duration) -> Result<TcpStream, String> {
+    let mut last = None;
+    for addr in addrs {
+        match TcpStream::connect_timeout(addr, timeout) {
+            Ok(tcp) => return Ok(tcp),
+            Err(e) => last = Some(e),
+        }
+    }
+    Err(last.map_or_else(|| tr!("serveur « {host} » introuvable", host = host), |e| format!("{host} : {e}")))
 }
 
 /// Lit la réponse ; le booléen dit si la connexion s'est terminée proprement.
-pub(crate) fn read_capped<S: Read>(mut stream: S, max_bytes: usize) -> Result<(Vec<u8>, bool), String> {
+/// `total` borne la durée de toute la lecture (audit S7) : le délai de chaque
+/// lecture ne suffit pas contre un serveur qui envoie au goutte-à-goutte.
+pub(crate) fn read_capped<S: Read>(mut stream: S, max_bytes: usize, total: Duration) -> Result<(Vec<u8>, bool), String> {
+    let started = std::time::Instant::now();
     let mut raw = Vec::new();
     let mut buf = [0u8; 16 * 1024];
     loop {
+        if started.elapsed() > total {
+            return Err(tr!("le serveur n'a pas répondu à temps").into());
+        }
         match stream.read(&mut buf) {
             Ok(0) => return Ok((raw, true)),
             Ok(n) => {
@@ -234,11 +261,323 @@ fn complete_response(raw: &[u8], clean_end: bool) -> Result<Response, String> {
 /// adresse bien formée et aucune adresse locale ou privée.
 pub(crate) fn check_image_url(url: &str) -> Result<(), String> {
     let (_, host, port, _) = split_url(url)?;
-    resolve_addr(&host, port, Reach::PublicOnly).map(|_| ())
+    resolve_addrs(&host, port, Reach::PublicOnly).map(|_| ())
 }
 
 fn request_once(url: &str, max_bytes: usize) -> Result<Response, String> {
     send_once("GET", url, &[("Accept", "image/*,*/*;q=0.5".to_string())], None, max_bytes, Reach::PublicOnly)
+}
+
+/// Connexion vers un serveur, en clair ou en TLS.
+enum Conn {
+    Plain(TcpStream),
+    Tls(Box<native_tls::TlsStream<TcpStream>>),
+}
+
+impl Conn {
+    fn tcp(&self) -> &TcpStream {
+        match self {
+            Self::Plain(tcp) => tcp,
+            Self::Tls(tls) => tls.get_ref(),
+        }
+    }
+
+    /// Vrai si le serveur n'a ni fermé la connexion ni rien envoyé depuis la
+    /// dernière réponse : elle peut porter une nouvelle requête.
+    fn still_open(&self) -> bool {
+        let tcp = self.tcp();
+        if tcp.set_nonblocking(true).is_err() {
+            return false;
+        }
+        let mut probe = [0u8; 1];
+        let idle = matches!(tcp.peek(&mut probe), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock);
+        tcp.set_nonblocking(false).is_ok() && idle
+    }
+}
+
+impl Read for Conn {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Plain(tcp) => tcp.read(buf),
+            Self::Tls(tls) => tls.read(buf),
+        }
+    }
+}
+
+impl Write for Conn {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Plain(tcp) => tcp.write(buf),
+            Self::Tls(tls) => tls.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Plain(tcp) => tcp.flush(),
+            Self::Tls(tls) => tls.flush(),
+        }
+    }
+}
+
+/// Connexions gardées ouvertes entre deux requêtes (audit P7 : une
+/// négociation TLS par requête `WebDAV` ou Outlook.com). Seulement vers les
+/// serveurs de l'utilisateur : une image venue d'un mail ouvre toujours sa
+/// propre connexion, fermée après la réponse.
+mod pool {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    use super::Conn;
+
+    /// Schéma (`https`), hôte en minuscules et port.
+    pub(super) type Origin = (bool, String, u16);
+
+    /// Au-delà, une connexion inutilisée est fermée : la plupart des serveurs
+    /// ferment les leurs après 5 à 60 secondes.
+    const IDLE_MAX: Duration = Duration::from_secs(30);
+    const PER_ORIGIN: usize = 2;
+    const TOTAL: usize = 8;
+
+    struct Idle {
+        origin: Origin,
+        conn: Conn,
+        since: Instant,
+    }
+
+    static IDLE: Mutex<Vec<Idle>> = Mutex::new(Vec::new());
+
+    /// Connexion ouverte vers `origin`, encore utilisable, s'il y en a une.
+    pub(super) fn take(origin: &Origin) -> Option<Conn> {
+        loop {
+            let found = {
+                // Verrou empoisonné : la réserve n'est qu'un raccourci, on s'en passe.
+                let mut idle = IDLE.lock().ok()?;
+                idle.retain(|i| i.since.elapsed() < IDLE_MAX);
+                let at = idle.iter().rposition(|i| i.origin == *origin)?;
+                idle.swap_remove(at).conn
+            };
+            // Vérifiée hors du verrou ; fermée par le serveur, on essaie la suivante.
+            if found.still_open() {
+                return Some(found);
+            }
+        }
+    }
+
+    /// Rend une connexion dont la réponse a été lue en entier.
+    pub(super) fn give_back(origin: Origin, conn: Conn) {
+        let Ok(mut idle) = IDLE.lock() else { return };
+        idle.retain(|i| i.since.elapsed() < IDLE_MAX);
+        if idle.iter().filter(|i| i.origin == origin).count() >= PER_ORIGIN {
+            return;
+        }
+        if idle.len() >= TOTAL {
+            idle.remove(0);
+        }
+        idle.push(Idle { origin, conn, since: Instant::now() });
+    }
+}
+
+/// Corps d'une réponse HTTP/1.1 : comment savoir qu'il est fini.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BodyEnd {
+    /// Pas de corps (204, 304, réponse à `HEAD`).
+    Empty,
+    /// `Content-Length`.
+    Length(usize),
+    /// `Transfer-Encoding: chunked` ; position du prochain bloc à lire.
+    Chunked(usize),
+    /// Ni l'un ni l'autre : fin de connexion.
+    Close,
+}
+
+/// Délimitation d'une réponse, lue sur son en-tête.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Framing {
+    /// Réponse provisoire (1xx, par exemple 103 Early Hints) : la vraie suit.
+    interim: bool,
+    body_start: usize,
+    end: BodyEnd,
+    /// HTTP/1.1 sans `Connection: close` : le serveur garde la connexion.
+    keep_alive: bool,
+}
+
+impl Framing {
+    /// Délimitation, une fois l'en-tête entier reçu.
+    fn read(raw: &[u8], head_request: bool) -> Result<Option<Self>, String> {
+        let Some(head_end) = raw.windows(4).position(|w| w == b"\r\n\r\n") else { return Ok(None) };
+        let response = parse_head(&raw[..head_end])?;
+        let interim = (100..=199).contains(&response.status);
+        let body_start = head_end + 4;
+        let chunked = response.header("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
+        let end = if head_request || interim || matches!(response.status, 204 | 304) {
+            BodyEnd::Empty
+        } else if chunked {
+            BodyEnd::Chunked(body_start)
+        } else if let Some(length) = content_length(&response.headers)? {
+            BodyEnd::Length(length)
+        } else {
+            BodyEnd::Close
+        };
+        let http11 = raw.starts_with(b"HTTP/1.1 ");
+        let close = response.header("connection").is_some_and(|v| v.split(',').any(|t| t.trim().eq_ignore_ascii_case("close")));
+        Ok(Some(Self { interim, body_start, end, keep_alive: http11 && !close && end != BodyEnd::Close }))
+    }
+
+    /// Fin de la réponse dans `raw`, si elle est arrivée.
+    fn end_in(&mut self, raw: &[u8]) -> Result<Option<usize>, String> {
+        match self.end {
+            BodyEnd::Empty => Ok(Some(self.body_start)),
+            BodyEnd::Length(length) => Ok(Some(self.body_start + length).filter(|end| raw.len() >= *end)),
+            BodyEnd::Close => Ok(None),
+            BodyEnd::Chunked(mut next) => loop {
+                let Some(line) = raw.get(next..).and_then(|r| r.windows(2).position(|w| w == b"\r\n")) else {
+                    self.end = BodyEnd::Chunked(next);
+                    return Ok(None);
+                };
+                let size_text = String::from_utf8_lossy(&raw[next..next + line]);
+                let size = usize::from_str_radix(size_text.split(';').next().unwrap_or("").trim(), 16)
+                    .map_err(|_| tr!("taille de bloc HTTP invalide"))?;
+                let data = next + line + 2;
+                if size == 0 {
+                    // En-têtes de fin éventuels, puis une ligne vide.
+                    let rest = &raw[data..];
+                    if rest.starts_with(b"\r\n") {
+                        return Ok(Some(data + 2));
+                    }
+                    self.end = BodyEnd::Chunked(next);
+                    return Ok(rest.windows(4).position(|w| w == b"\r\n\r\n").map(|p| data + p + 4));
+                }
+                let after = data.checked_add(size).and_then(|n| n.checked_add(2)).ok_or(tr!("taille de bloc HTTP invalide"))?;
+                if raw.len() < after {
+                    self.end = BodyEnd::Chunked(next);
+                    return Ok(None);
+                }
+                if &raw[after - 2..after] != b"\r\n" {
+                    return Err(tr!("bloc HTTP mal terminé").into());
+                }
+                next = after;
+            },
+        }
+    }
+}
+
+/// Code et en-têtes seuls (sans la ligne vide finale), avant l'arrivée du corps.
+fn parse_head(head: &[u8]) -> Result<Response, String> {
+    let text = String::from_utf8_lossy(head);
+    let status: u16 =
+        text.lines().next().and_then(|l| l.split_whitespace().nth(1)).and_then(|c| c.parse().ok()).ok_or(tr!("code HTTP illisible"))?;
+    let headers =
+        text.lines().skip(1).filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_string(), v.trim().to_string())).collect();
+    Ok(Response { status, headers, body: Vec::new() })
+}
+
+/// Échec d'un échange sur une connexion.
+#[derive(Debug, PartialEq, Eq)]
+enum ExchangeError {
+    /// La connexion était fermée : rien n'a pu être écrit, ou rien n'est
+    /// revenu. Sur une connexion gardée, on en ouvre une neuve.
+    Closed(String),
+    /// Toute autre erreur : délai dépassé, réponse invalide ou trop longue.
+    Failed(String),
+}
+
+impl ExchangeError {
+    /// Message pour l'utilisateur, avec le serveur quand la connexion a été coupée.
+    fn into_message(self, host: &str) -> String {
+        match self {
+            Self::Closed(cause) => format!("{host} : {cause}"),
+            Self::Failed(message) => message,
+        }
+    }
+}
+
+impl From<String> for ExchangeError {
+    fn from(message: String) -> Self {
+        Self::Failed(message)
+    }
+}
+
+impl From<&str> for ExchangeError {
+    fn from(message: &str) -> Self {
+        Self::Failed(message.to_string())
+    }
+}
+
+/// Réponse lue jusqu'à sa fin annoncée, sans attendre la fermeture de la
+/// connexion. Rend les octets, si la connexion s'est terminée proprement
+/// (même sens que [`read_capped`]) et si elle peut servir de nouveau.
+fn read_response<S: Read>(
+    stream: &mut S,
+    max_bytes: usize,
+    total: Duration,
+    head_request: bool,
+) -> Result<(Vec<u8>, bool, bool), ExchangeError> {
+    let started = std::time::Instant::now();
+    let mut raw = Vec::new();
+    let mut buf = [0u8; 16 * 1024];
+    let mut framing: Option<Framing> = None;
+    loop {
+        if framing.is_none() {
+            framing = Framing::read(&raw, head_request)?;
+        }
+        if let Some(f) = framing.as_mut() {
+            if let Some(end) = f.end_in(&raw)? {
+                if f.interim {
+                    // Réponse provisoire : écartée, la vraie réponse suit.
+                    raw.drain(..end);
+                    framing = None;
+                    continue;
+                }
+                // Octets au-delà de la réponse : le serveur ne suit pas le
+                // protocole, la connexion n'est pas réutilisée.
+                let reusable = f.keep_alive && raw.len() == end;
+                raw.truncate(end);
+                return Ok((raw, true, reusable));
+            }
+        }
+        if started.elapsed() > total {
+            return Err(tr!("le serveur n'a pas répondu à temps").into());
+        }
+        match stream.read(&mut buf) {
+            Ok(0) if raw.is_empty() => return Err(ExchangeError::Closed(tr!("connexion fermée sans réponse").into())),
+            Ok(0) => return Ok((raw, true, false)),
+            Ok(n) => {
+                raw.extend_from_slice(&buf[..n]);
+                if raw.len() > max_bytes + 16 * 1024 {
+                    return Err(tr!("réponse trop volumineuse").into());
+                }
+            }
+            Err(e) if raw.is_empty() && matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                return Err(tr!("le serveur n'a pas répondu à temps").into());
+            }
+            // Rien d'arrivé : la connexion était coupée ; la cause est gardée.
+            Err(e) if raw.is_empty() => return Err(ExchangeError::Closed(e.to_string())),
+            // Coupure en cours de réponse : ce qui est arrivé ne compte que
+            // si la réponse prouve qu'elle est complète.
+            Err(_) => return Ok((raw, false, false)),
+        }
+    }
+}
+
+/// Une requête sur une connexion : la réponse, et si la connexion peut
+/// servir de nouveau.
+fn exchange(
+    conn: &mut Conn,
+    request: &[u8],
+    max_bytes: usize,
+    total: Duration,
+    head_request: bool,
+) -> Result<(Response, bool), ExchangeError> {
+    conn.write_all(request).map_err(|e| ExchangeError::Closed(e.to_string()))?;
+    let (raw, clean_end, reusable) = read_response(conn, max_bytes, total, head_request)?;
+    Ok((complete_response(&raw, clean_end)?, reusable))
+}
+
+/// Méthodes qu'on peut renvoyer sans risque si une connexion gardée s'est
+/// fermée sous nos pieds (RFC 9110 §9.2.2).
+fn idempotent(method: &str) -> bool {
+    matches!(method, "GET" | "HEAD" | "PUT" | "DELETE" | "OPTIONS" | "PROPFIND" | "REPORT")
 }
 
 /// Une requête HTTP(S) quelconque (`WebDAV` : PROPFIND, REPORT, PUT, DELETE…).
@@ -251,15 +590,16 @@ fn send_once(
     reach: Reach,
 ) -> Result<Response, String> {
     let (https, host, port, path) = split_url(url)?;
-    let addr = resolve_addr(&host, port, reach)?;
     let timeout = if reach == Reach::PublicOnly { TIMEOUT } else { SERVER_TIMEOUT };
-    let tcp = TcpStream::connect_timeout(&addr, timeout).map_err(|e| format!("{host} : {e}"))?;
-    tcp.set_read_timeout(Some(timeout)).ok();
-    tcp.set_write_timeout(Some(timeout)).ok();
+    // Toute la réponse, quelle que soit la cadence d'envoi : 40 s pour une image,
+    // 10 min pour un serveur de l'utilisateur (un carnet de 32 Mo sur une ligne lente).
+    let total = if reach == Reach::PublicOnly { timeout.saturating_mul(4) } else { Duration::from_mins(10) };
+    let keep = reach == Reach::Any;
     let default_port = if https { 443 } else { 80 };
     let host_header = if port == default_port { host.clone() } else { format!("{host}:{port}") };
+    let connection = if keep { "keep-alive" } else { "close" };
     let mut request =
-        format!("{method} {path} HTTP/1.1\r\nHost: {host_header}\r\nUser-Agent: Mozilla/5.0 (Vortex Mail)\r\nConnection: close\r\n");
+        format!("{method} {path} HTTP/1.1\r\nHost: {host_header}\r\nUser-Agent: Mozilla/5.0 (Vortex Mail)\r\nConnection: {connection}\r\n");
     for (name, value) in headers {
         let _ = write!(request, "{name}: {value}\r\n");
     }
@@ -271,17 +611,43 @@ fn send_once(
     if let Some(body) = body {
         request.extend_from_slice(body);
     }
-    let (raw, clean_end) = if https {
+    let head_request = method == "HEAD";
+    let origin: pool::Origin = (https, host.to_ascii_lowercase(), port);
+
+    // Connexion gardée : seulement pour une requête qu'on peut renvoyer si
+    // le serveur l'avait fermée entre-temps.
+    if keep && idempotent(method) {
+        if let Some(mut conn) = pool::take(&origin) {
+            match exchange(&mut conn, &request, max_bytes, total, head_request) {
+                Ok((response, reusable)) => {
+                    if reusable {
+                        pool::give_back(origin, conn);
+                    }
+                    return Ok(response);
+                }
+                // Fermée par le serveur entre deux requêtes : une connexion neuve suit.
+                Err(ExchangeError::Closed(_)) => {}
+                Err(ExchangeError::Failed(message)) => return Err(message),
+            }
+        }
+    }
+
+    let addrs = resolve_addrs(&host, port, reach)?;
+    let tcp = connect_any(&host, &addrs, timeout)?;
+    tcp.set_read_timeout(Some(timeout)).ok();
+    tcp.set_write_timeout(Some(timeout)).ok();
+    let mut conn = if https {
         let connector = crate::transport::tls_connector()?;
-        let mut tls = connector.connect(&host, tcp).map_err(|e| tr!("TLS avec {host} : {e}", host = host, e = e))?;
-        tls.write_all(&request).map_err(|e| e.to_string())?;
-        read_capped(tls, max_bytes)?
+        Conn::Tls(Box::new(connector.connect(&host, tcp).map_err(|e| tr!("TLS avec {host} : {e}", host = host, e = e))?))
     } else {
-        let mut tcp = tcp;
-        tcp.write_all(&request).map_err(|e| e.to_string())?;
-        read_capped(tcp, max_bytes)?
+        Conn::Plain(tcp)
     };
-    complete_response(&raw, clean_end)
+    // Connexion neuve : une coupure est une erreur, avec sa cause.
+    let (response, reusable) = exchange(&mut conn, &request, max_bytes, total, head_request).map_err(|e| e.into_message(&host))?;
+    if keep && reusable {
+        pool::give_back(origin, conn);
+    }
+    Ok(response)
 }
 
 /// Schéma, hôte (en minuscules) et port d'une adresse.
@@ -391,6 +757,154 @@ pub(crate) fn get(url: &str, max_bytes: usize) -> Result<Response, String> {
 mod tests {
     use super::*;
 
+    /// Serveur qui envoie un octet toutes les `pause`.
+    struct Trickle(std::time::Duration);
+    impl Read for Trickle {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            std::thread::sleep(self.0);
+            buf[0] = b'x';
+            Ok(1)
+        }
+    }
+
+    /// Lecteur qui rend les octets par morceaux de `step`.
+    struct Pieces {
+        data: Vec<u8>,
+        at: usize,
+        step: usize,
+    }
+    impl Read for Pieces {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = self.step.min(buf.len()).min(self.data.len() - self.at);
+            buf[..n].copy_from_slice(&self.data[self.at..self.at + n]);
+            self.at += n;
+            Ok(n)
+        }
+    }
+
+    fn read_in_pieces(raw: &[u8], step: usize) -> (Vec<u8>, bool) {
+        let mut reader = Pieces { data: raw.to_vec(), at: 0, step };
+        let (bytes, _, reusable) = read_response(&mut reader, 1 << 20, Duration::from_secs(5), false).expect("réponse lisible");
+        (bytes, reusable)
+    }
+
+    /// Lecteur dont la connexion a été coupée par le serveur.
+    struct Reset;
+    impl Read for Reset {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(std::io::ErrorKind::ConnectionReset, "connexion réinitialisée par le serveur"))
+        }
+    }
+
+    #[test]
+    fn j12_coupure_avant_la_reponse_garde_sa_cause() {
+        let closed = read_response(&mut Reset, 1024, Duration::from_secs(5), false).expect_err("rien reçu");
+        assert_eq!(closed, ExchangeError::Closed("connexion réinitialisée par le serveur".into()), "cause gardée");
+        assert_eq!(closed.into_message("dav.exemple.fr"), "dav.exemple.fr : connexion réinitialisée par le serveur");
+        let mut empty = Pieces { data: Vec::new(), at: 0, step: 1 };
+        let quiet = read_response(&mut empty, 1024, Duration::from_secs(5), false).expect_err("fermée sans un octet");
+        assert!(matches!(quiet, ExchangeError::Closed(_)), "fermeture sans réponse : {quiet:?}");
+        // Délai dépassé : ce n'est pas une connexion fermée, on ne réessaie pas.
+        assert!(matches!(
+            read_response(&mut Trickle(Duration::from_millis(5)), 1 << 20, Duration::from_millis(30), false),
+            Err(ExchangeError::Failed(_))
+        ));
+    }
+
+    #[test]
+    fn p7_reponse_lue_jusqu_a_sa_fin_annoncee() {
+        for step in [1, 3, 1024] {
+            let raw = b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello";
+            assert_eq!(read_in_pieces(raw, step), (raw.to_vec(), true), "longueur annoncée, morceaux de {step}");
+            let chunked =
+                b"HTTP/1.1 207 Multi-Status\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2;x=1\r\nde\r\n0\r\nX-Fin: 1\r\n\r\n";
+            let (bytes, reusable) = read_in_pieces(chunked, step);
+            assert_eq!((bytes.len(), reusable), (chunked.len(), true), "chunked et en-têtes de fin, morceaux de {step}");
+            assert_eq!(parse_response(&bytes).expect("réponse complète").body, b"abcde");
+            let empty = b"HTTP/1.1 204 No Content\r\n\r\n";
+            assert_eq!(read_in_pieces(empty, step), (empty.to_vec(), true), "sans corps, morceaux de {step}");
+        }
+        let early = b"HTTP/1.1 103 Early Hints\r\nLink: </a.css>\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+        let (bytes, reusable) = read_in_pieces(early, 4);
+        assert_eq!((parse_response(&bytes).expect("réponse finale").status, reusable), (200, true), "réponse provisoire écartée");
+    }
+
+    #[test]
+    fn p7_connexion_gardee_seulement_si_le_serveur_la_garde() {
+        let cases: [(&[u8], &str); 4] = [
+            (b"HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\nok", "Connection: close"),
+            (b"HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok", "HTTP/1.0"),
+            (b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nokXX", "octets en trop"),
+            (b"HTTP/1.1 200 OK\r\n\r\nfin par fermeture", "sans longueur annoncée"),
+        ];
+        for (raw, why) in cases {
+            assert!(!read_in_pieces(raw, 1024).1, "{why}");
+        }
+    }
+
+    /// Serveur local qui répond « ok » à chaque requête et ferme chaque
+    /// connexion après `per_connection` réponses ; rend son adresse et le
+    /// nombre de connexions acceptées.
+    fn keep_alive_server(per_connection: usize) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("port local");
+        let url = format!("http://127.0.0.1:{}/dav/", listener.local_addr().expect("adresse locale").port());
+        let accepted = std::sync::Arc::new(AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&accepted);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                counter.fetch_add(1, Ordering::SeqCst);
+                for _ in 0..per_connection {
+                    let mut request = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while !request.ends_with(b"\r\n\r\n") {
+                        if !matches!(stream.read(&mut byte), Ok(1)) {
+                            break;
+                        }
+                        request.push(byte[0]);
+                    }
+                    if !request.ends_with(b"\r\n\r\n") {
+                        break;
+                    }
+                    let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok");
+                }
+            }
+        });
+        (url, accepted)
+    }
+
+    #[test]
+    fn p7_connexion_reutilisee_vers_un_serveur_de_l_utilisateur() {
+        use std::sync::atomic::Ordering;
+        let (url, accepted) = keep_alive_server(2);
+        for _ in 0..2 {
+            assert_eq!(send("PROPFIND", &url, &[], None, 1024).expect("réponse").0.body, b"ok");
+        }
+        assert_eq!(accepted.load(Ordering::SeqCst), 1, "deux requêtes, une seule connexion");
+        // Le serveur a fermé après sa deuxième réponse : la requête suivante en ouvre une neuve.
+        assert_eq!(send("PROPFIND", &url, &[], None, 1024).expect("réponse après fermeture").0.body, b"ok");
+        assert_eq!(accepted.load(Ordering::SeqCst), 2, "connexion fermée par le serveur remplacée");
+    }
+
+    #[test]
+    fn s7_reponse_au_goutte_a_goutte_bornee() {
+        let started = std::time::Instant::now();
+        let result = read_capped(Trickle(std::time::Duration::from_millis(5)), 1024 * 1024, std::time::Duration::from_millis(50));
+        assert!(result.is_err(), "abandonné au bout du délai total");
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn s7_adresse_suivante_essayee() {
+        // Une adresse qui refuse la connexion, puis une qui répond.
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        let open = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addrs = [closed, open.local_addr().unwrap()];
+        assert!(connect_any("exemple", &addrs, std::time::Duration::from_secs(2)).is_ok(), "la seconde adresse répond");
+        assert!(connect_any("exemple", &addrs[..1], std::time::Duration::from_secs(2)).is_err());
+    }
+
     #[test]
     fn urls() {
         assert_eq!(split_url("https://img.exemple.fr/a/b.png?x=1").unwrap(), (true, "img.exemple.fr".into(), 443, "/a/b.png?x=1".into()));
@@ -485,8 +999,8 @@ mod tests {
         for ip in ["93.184.216.34", "1.1.1.1", "2606:4700:4700::1111", "::ffff:8.8.8.8"] {
             assert!(is_public(ip.parse().unwrap()), "{ip}");
         }
-        assert!(resolve_addr("127.0.0.1", 80, Reach::PublicOnly).is_err());
-        assert!(resolve_addr("[::1]", 80, Reach::PublicOnly).is_err());
-        assert!(resolve_addr("192.168.1.10", 80, Reach::Any).is_ok());
+        assert!(resolve_addrs("127.0.0.1", 80, Reach::PublicOnly).is_err());
+        assert!(resolve_addrs("[::1]", 80, Reach::PublicOnly).is_err());
+        assert!(resolve_addrs("192.168.1.10", 80, Reach::Any).is_ok());
     }
 }

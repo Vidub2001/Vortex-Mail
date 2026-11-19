@@ -2,13 +2,15 @@
 #
 # Sur étiquette v* (ou à la main, sans publication) :
 # - versions identiques partout (étiquette, tauri.conf.json, Cargo.toml, package.json) ;
+# - dépendances (cargo deny) et tests Rust repassés sur le code étiqueté (lot J8c,
+#   audit) : aucun installateur n'est construit s'ils échouent ;
 # - installateurs Linux (deb, AppImage) et Windows (NSIS, version portable) ;
 # - Windows signé par SignPath (certificat de la SignPath Foundation) si le
 #   projet SignPath est configuré ; chaque signature est approuvée à la main ;
 # - empreintes SHA256SUMS, signées par GPG si la clé est fournie ;
 # - version GitHub créée en brouillon : relue, puis publiée à la main.
 #
-# L'audit de chaque envoi reste fait par Jenkins (Jenkinsfile).
+# L'audit complet de chaque envoi reste fait par Jenkins (Jenkinsfile).
 name: Version publiée
 
 on:
@@ -51,9 +53,40 @@ jobs:
       - name: Copie de l'ISPDB récente
         run: python3 scripts/ispdb.py age 60
 
+  # Lot J8c : l'étiquette peut viser un commit que Jenkins n'a pas audité
+  # (poussé seulement sur GitHub) ; ces deux contrôles ne coûtent que quelques minutes.
+  tests:
+    name: Dépendances et tests
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Bibliothèques du système
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev libxdo-dev
+      - name: Rust (version de rust-toolchain.toml)
+        run: rustup toolchain install
+      - name: cargo-deny
+        run: cargo install --locked cargo-deny
+      - name: Dépendances (avis acceptés de deny.toml)
+        run: make deny
+      # dist/ est embarqué par tauri::generate_context!, même pour les tests.
+      - run: npm ci
+      - run: npm run build
+      - name: Tests Rust
+        run: make test
+
   linux:
     name: Linux
-    needs: version
+    needs: [version, tests]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -82,7 +115,7 @@ jobs:
 
   windows:
     name: Windows
-    needs: version
+    needs: [version, tests]
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5

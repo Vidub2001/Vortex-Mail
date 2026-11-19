@@ -1,6 +1,9 @@
-// Réglages de « Paramètres › Courrier », partagés par toutes les fenêtres
-// (stockage local du navigateur intégré, même origine).
+// Réglages de « Paramètres › Courrier », dans le cache chiffré (signatures :
+// audit S8, voir `secure-store.ts`), pour la fenêtre principale. Depuis le lot 9c, chaque fenêtre a son stockage : une fenêtre
+// de message ou de rédaction reçoit les réglages à son ouverture
+// (`window_bootstrap`) et ne voit pas ceux changés ensuite.
 import { useEffect, useState } from "react";
+import { secureStore } from "./secure-store";
 
 export interface MailSettings {
   /** Signature (texte) par compte. */
@@ -35,7 +38,7 @@ const DEFAULTS: MailSettings = {
 
 export function loadSettings(): MailSettings {
   try {
-    return { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<MailSettings>) };
+    return { ...DEFAULTS, ...(JSON.parse(secureStore.getItem(KEY) ?? "{}") as Partial<MailSettings>) };
   } catch {
     return { ...DEFAULTS };
   }
@@ -43,7 +46,7 @@ export function loadSettings(): MailSettings {
 
 export function saveSettings(settings: MailSettings) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(settings));
+    secureStore.setItem(KEY, JSON.stringify(settings));
   } catch {
     // stockage indisponible : réglage valable jusqu'à la fermeture
   }
@@ -69,7 +72,7 @@ const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;")
 
 /** Contenu HTML de la signature d'un compte (vide s'il n'en a pas). */
 export function signatureContent(accountId: string): string {
-  const text = (loadSettings().signatures[accountId] ?? "").replace(/\s+$/, "");
+  const text = (loadSettings().signatures[accountId] ?? "").trimEnd();
   return text ? text.split("\n").map((l) => escapeHtml(l) || "<br>").join("<br>") : "";
 }
 

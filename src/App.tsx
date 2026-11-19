@@ -1,7 +1,6 @@
 import {
   FluentProvider,
   Link,
-  Spinner,
   Toast,
   ToastBody,
   ToastTitle,
@@ -22,8 +21,10 @@ import { announceArrivals, newRule, runInboxRules, type Rule } from "./rules";
 import { answerInvitation, applyInvitation, eventWhen } from "./invitation";
 import { announceInvitations, newInvitations } from "./invites";
 import { failedInit, newDraft, replyDraft } from "./compose";
+import { withViews } from "./body-views";
 import { onWindowEvent, openComposeWindow, openDraftWindow, openMessageWindow, type WindowEvent } from "./windows";
 import { isUnified, members, mergeLists, unifiedFolder, unifiedId } from "./unified";
+import { applySync, knownRevisions, type KnownList } from "./lists";
 import { ActionBar } from "./components/ActionBar";
 import { StatusBar } from "./components/StatusBar";
 import { darkTheme, lightTheme, useThemeMode } from "./theme";
@@ -32,6 +33,9 @@ import { FolderPane } from "./components/FolderPane";
 import { MessageList, type FilterMode, type SortMode } from "./components/MessageList";
 import { NavRail } from "./components/NavRail";
 import { ReadingPane } from "./components/ReadingPane";
+import { pickById, whenAccepted, withFlag } from "./selection";
+import { useUpdateCheck } from "./updates";
+import { UpdateDialog } from "./components/UpdateDialog";
 import type {
   Account,
   MailChanged,
@@ -44,6 +48,7 @@ import type {
   MoveReport,
   SendReport,
 } from "./types";
+import { VortexSpinner } from "./components/VortexSpinner";
 
 /** Erreur due à l'absence de réseau (et non à un compte mal configuré) ? */
 function isNetworkError(message: string): boolean {
@@ -80,6 +85,8 @@ function sameList(old: MessageSummary[], next: MessageSummary[]): MessageSummary
       a.subject !== b.subject ||
       a.preview !== b.preview ||
       a.fromName !== b.fromName ||
+      a.fromEmail !== b.fromEmail ||
+      a.folderId !== b.folderId ||
       a.hasAttachments !== b.hasAttachments ||
       a.flags.seen !== b.flags.seen ||
       a.flags.flagged !== b.flags.flagged ||
@@ -97,11 +104,14 @@ const CalendarView = lazy(() => import("./components/CalendarView").then((m) => 
 const ContactsView = lazy(() => import("./components/ContactsView").then((m) => ({ default: m.ContactsView })));
 const SettingsDialog = lazy(() => import("./components/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
 
+/** Plafond d'un fichier importé, le même que `MAX_IMPORT` du backend. */
+const MAX_IMPORT_BYTES = 200 * 1024 * 1024;
+
 /** Pendant le chargement d'une vue : un indicateur discret au milieu. */
 function Loading() {
   return (
     <div className="view-loading">
-      <Spinner size="small" />
+      <VortexSpinner size={28} aria-label={t("Chargement")} />
     </div>
   );
 }
@@ -126,6 +136,12 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [folderId, setFolderId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageSummary[]>([]);
+  /**
+   * Messages retirés de la liste dès la demande de déplacement ou de
+   * suppression, avant la réponse du serveur (lot J11a) : ils reviennent
+   * seulement si le serveur refuse.
+   */
+  const [hiding, setHiding] = useState<ReadonlySet<number>>(() => new Set());
   const [syncingList, setSyncingList] = useState(false);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [current, setCurrent] = useState<Message | null>(null);
@@ -141,6 +157,10 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
   /** Messages concernés par des actions faites hors connexion, en attente du réseau. */
   const [pendingActions, setPendingActions] = useState(0);
   /** Modifie la liste affichée, dossier et résultats de recherche. */
+  /** Dernière liste reçue de chaque dossier, avec sa version dans le cache (audit P1). */
+  const knownLists = useRef(new Map<string, KnownList>());
+  /** Dossier dont la liste est à l'écran. */
+  const shownList = useRef<string | null>(null);
   const patchList = useCallback((fn: (list: MessageSummary[]) => MessageSummary[]) => {
     setMessages(fn);
     setSearchResults((list) => (list ? fn(list) : list));
@@ -323,18 +343,28 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
   const reloadMessages = useCallback(
     async (id: string) => {
       const sources = isUnified(id) ? members(id, foldersRef.current).map((f) => f.id) : [id];
-      try {
-        const cached = await Promise.all(sources.map((s) => api.listMessages(s)));
-        if (folderRef.current === id) setMessages((old) => sameList(old, mergeLists(cached)));
-      } catch (e) {
-        fail(e);
+      const known = knownLists.current;
+      // Dossier déjà affiché (cycle de synchronisation, IDLE, après une action) :
+      // la liste à l'écran est à jour, inutile de relire tout le cache (audit P1).
+      const shown = shownList.current === id && sources.every((s) => known.has(s));
+      shownList.current = id;
+      if (!shown) {
+        try {
+          const cached = await Promise.all(sources.map((s) => api.listMessages(s)));
+          if (folderRef.current === id) setMessages((old) => sameList(old, mergeLists(cached)));
+        } catch (e) {
+          fail(e);
+        }
       }
       setSyncingList(true);
       try {
-        // Un seul appel : les comptes se synchronisent en parallèle côté application.
-        let results: { messages: MessageSummary[]; error: string | null }[];
+        // Un seul appel : les comptes se synchronisent en parallèle côté application,
+        // et une liste inchangée depuis la dernière fois n'est pas renvoyée (audit P1).
+        let results: { messages: MessageSummary[] | null; error: string | null }[];
         try {
-          results = await api.syncMessagesMany(sources);
+          const synced = await api.syncChangedLists(sources, knownRevisions(known, sources));
+          const { changed, lists } = applySync(known, synced);
+          results = synced.map((r, i) => ({ messages: changed ? (lists[i] ?? []) : null, error: r.error }));
         } catch (e) {
           results = await Promise.all(
             sources.map(async (s) => ({ messages: await api.listMessages(s).catch(() => []), error: String(e) })),
@@ -342,7 +372,9 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
         }
         if (folderRef.current !== id) return;
         // Liste inchangée : pas de nouveau rendu.
-        setMessages((old) => sameList(old, mergeLists(results.map((r) => r.messages))));
+        if (results.some((r) => r.messages !== null)) {
+          setMessages((old) => sameList(old, mergeLists(results.map((r) => r.messages ?? []))));
+        }
         // Connexions à refaire : déjà signalées par le bandeau « Reconnecter », pas de doublon ici.
         // Seulement celles du courrier : un agenda à reconnecter ne masque pas les erreurs du courrier (A3).
         const pending = new Set(
@@ -395,7 +427,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
   }, [fail, loadCachedFolders, reloadFolders, pickFolder]);
 
   useEffect(() => {
-    reloadAll();
+    void reloadAll();
   }, [reloadAll]);
 
   useEffect(() => {
@@ -408,7 +440,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     setCurrent(null);
     setMessages([]);
     setSyncingList(false);
-    if (folderId) reloadMessages(folderId);
+    if (folderId) void reloadMessages(folderId);
   }, [folderId, reloadMessages]);
 
   // ---------------------------------------------------------- hors connexion
@@ -457,9 +489,9 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
   useEffect(() => {
     const back = async () => {
       await flushPending();
-      reloadFolders();
-      if (folderRef.current) reloadMessages(folderRef.current);
-      runPrefetch(false);
+      void reloadFolders();
+      if (folderRef.current) void reloadMessages(folderRef.current);
+      void runPrefetch(false);
     };
     window.addEventListener("online", back);
     return () => window.removeEventListener("online", back);
@@ -474,8 +506,8 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     if (!report) return;
     if (announce) announceArrivals(report.arrivals, accountsRef.current);
     if (report.matched > 0) {
-      reloadFolders();
-      if (folderRef.current) reloadMessages(folderRef.current);
+      void reloadFolders();
+      if (folderRef.current) void reloadMessages(folderRef.current);
     }
     const failures = report.failed.filter((f) => !isNetworkError(f));
     if (failures.length > 0) notify(t("Règles : classement incomplet"), failures.slice(0, 3).join("\n"), "error");
@@ -484,8 +516,8 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
   // « Appliquer maintenant » (Paramètres › Règles) : listes et compteurs à jour.
   useEffect(() => {
     const refresh = () => {
-      reloadFolders();
-      if (folderRef.current) reloadMessages(folderRef.current);
+      void reloadFolders();
+      if (folderRef.current) void reloadMessages(folderRef.current);
     };
     window.addEventListener("vortex:rules-applied", refresh);
     return () => window.removeEventListener("vortex:rules-applied", refresh);
@@ -497,13 +529,13 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
       // Actions hors connexion et déplacements interrompus de la session précédente.
       await flushPending();
       await runRulesRef.current(false);
-      runPrefetch(true);
-      syncPimRef.current();
+      void runPrefetch(true);
+      void syncPimRef.current();
     }, 5_000);
     const full = window.setInterval(() => {
-      runPrefetch(true);
+      void runPrefetch(true);
       // Contacts et agenda : relus entièrement, donc moins souvent que le courrier.
-      syncPimRef.current();
+      void syncPimRef.current();
     }, 15 * 60_000);
     return () => {
       window.clearTimeout(first);
@@ -516,10 +548,10 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
   useEffect(() => {
     const timer = window.setInterval(async () => {
       await flushPending();
-      reloadFolders();
+      void reloadFolders();
       if (folderRef.current) await reloadMessages(folderRef.current);
       await runRulesRef.current();
-      runPrefetch(false);
+      void runPrefetch(false);
     }, Math.max(1, syncMinutes) * 60_000);
     return () => window.clearInterval(timer);
   }, [flushPending, reloadFolders, reloadMessages, runPrefetch, syncMinutes]);
@@ -564,6 +596,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
           [m.subject, m.fromName, m.fromEmail, m.preview].some((s) => s.toLowerCase().includes(q)),
         )
       : messages);
+    if (hiding.size > 0) list = list.filter((m) => !hiding.has(m.id));
     if (filter === "unread") list = list.filter((m) => !m.flags.seen);
     else if (filter === "flagged") list = list.filter((m) => m.flags.flagged);
     else if (filter === "attachments") list = list.filter((m) => m.hasAttachments);
@@ -572,12 +605,13 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     else if (sort === "from") list = [...list].sort((a, b) => byText(a.fromName || a.fromEmail, b.fromName || b.fromEmail) || b.date - a.date);
     else if (sort === "subject") list = [...list].sort((a, b) => byText(a.subject, b.subject) || b.date - a.date);
     return list;
-  }, [messages, searchResults, search, filter, sort]);
+  }, [messages, searchResults, search, filter, sort, hiding]);
 
   const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
   const currentFolder = isUnified(folderId) ? unifiedFolder(folderId, folders) : folderId ? folderById.get(folderId) : undefined;
   const currentAccount = accounts.find((a) => a.id === currentFolder?.accountId);
-  const selectedMessages = visible.filter((m) => selectedIds.includes(m.id));
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedMessages = useMemo(() => pickById(visible, selectedSet), [visible, selectedSet]);
 
   const select = (id: number, mode: "single" | "toggle" | "range") => {
     if (mode === "toggle") {
@@ -595,6 +629,36 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     }
   };
 
+  /** Retire `ids` de la liste affichée, ou les y remet (`false`). */
+  const hide = (ids: number[], hidden = true) =>
+    setHiding((old) => {
+      const next = new Set(old);
+      for (const id of ids) {
+        if (hidden) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+
+  /**
+   * Déplacement ou suppression en tâche de fond (lot J11a) : les messages
+   * quittent la liste tout de suite, la sélection est vidée, puis le serveur
+   * travaille. Seuls ceux qu'il refuse reviennent ; l'arborescence (compteurs)
+   * se met à jour après, sans retenir la liste.
+   */
+  const runMove = async (ids: number[], where: string, call: () => Promise<MoveReport>) => {
+    hide(ids);
+    setSelectedIds([]);
+    setCurrent((c) => (c && ids.includes(c.id) ? null : c));
+    try {
+      await afterMove(await call(), where, ids);
+    } catch (e) {
+      fail(e);
+    } finally {
+      hide(ids, false);
+    }
+  };
+
   const afterMove = async (report: MoveReport, where: string, ids: number[]) => {
     const n = report.moved.length;
     const queued = report.queued ?? 0;
@@ -609,7 +673,11 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
       refreshPending();
     }
     const failedIds = new Set(report.failed.map((f) => f.id));
-    setSearchResults((list) => (list ? list.filter((m) => !ids.includes(m.id) || failedIds.has(m.id)) : list));
+    const gone = new Set(ids.filter((id) => !failedIds.has(id)));
+    // Partis pour de bon : retirés aussi de la liste elle-même, avant que la
+    // marque « en cours » ne soit levée (pas de réapparition fugitive).
+    setMessages((list) => (list.some((m) => gone.has(m.id)) ? list.filter((m) => !gone.has(m.id)) : list));
+    setSearchResults((list) => (list ? list.filter((m) => !gone.has(m.id)) : list));
     if (n > 0) {
       const detail =
         report.crossAccount > 0
@@ -625,10 +693,8 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     if (report.failed.length > 0) {
       notify(t("{n} échec(s)", { n: report.failed.length }), report.failed.map((f) => f.reason).join("\n"), "error");
     }
-    setSelectedIds([]);
-    setCurrent(null);
-    await reloadFolders();
     if (folderId) await reloadMessages(folderId);
+    void reloadFolders();
   };
 
   const describeFolder = (id: string) => {
@@ -637,11 +703,9 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     return f ? t("« {folder} » ({account})", { folder: f.name, account: a?.name ?? f.accountId }) : id;
   };
 
-  const moveTo = (targetId: string, ids: number[]) =>
-    api.moveMessages(ids, targetId).then((r) => afterMove(r, describeFolder(targetId), ids)).catch(fail);
+  const moveTo = (targetId: string, ids: number[]) => runMove(ids, describeFolder(targetId), () => api.moveMessages(ids, targetId));
 
-  const moveIdsToRole = (ids: number[], role: FolderRole, label: string) =>
-    api.moveToRole(ids, role).then((r) => afterMove(r, label, ids)).catch(fail);
+  const moveIdsToRole = (ids: number[], role: FolderRole, label: string) => runMove(ids, label, () => api.moveToRole(ids, role));
 
   const moveToRole = (role: FolderRole, label: string) => moveIdsToRole(selectedIds, role, label);
 
@@ -664,6 +728,15 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
       if (seq !== searchSeq.current) return;
       const found = new Set(server.results.map((m) => m.id));
       setSearchResults([...server.results, ...local.filter((m) => !found.has(m.id))].sort((a, b) => b.date - a.date));
+      if (server.unfinished > 0) {
+        notify(
+          t("Recherche sur les serveurs arrêtée après 30 secondes"),
+          server.unfinished > 1
+            ? t("{n} dossiers n'ont pas été parcourus : les résultats peuvent être incomplets.", { n: server.unfinished })
+            : t("Un dossier n'a pas été parcouru : les résultats peuvent être incomplets."),
+          "info",
+        );
+      }
       if (server.errors.length > 0) {
         const network = server.errors.every((e) => isNetworkError(e.message));
         const name = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
@@ -699,21 +772,33 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
 
   // ---------------------------------------------------------- actions au survol d'un message
 
+  // Lu / indicateur : l'affichage ne change que si le backend a accepté
+  // (audit B3), comme dans la fenêtre d'un message.
   const quickSeen = async (m: MessageSummary) => {
     const seen = !m.flags.seen;
-    await api.setSeen([m.id], seen).catch(fail);
-    refreshPending();
-    patchList((list) => list.map((x) => (x.id === m.id ? { ...x, flags: { ...x.flags, seen } } : x)));
-    setFolders((fs) =>
-      fs.map((f) => (f.id === m.folderId ? { ...f, unread: Math.max(0, f.unread + (seen ? -1 : 1)) } : f)),
+    await whenAccepted(
+      api.setSeen([m.id], seen),
+      () => {
+        patchList((list) => withFlag(list, [m.id], "seen", seen));
+        setFolders((fs) =>
+          fs.map((f) => (f.id === m.folderId ? { ...f, unread: Math.max(0, f.unread + (seen ? -1 : 1)) } : f)),
+        );
+      },
+      fail,
+      refreshPending,
     );
   };
 
   const quickFlag = async (m: MessageSummary) => {
     const flagged = !m.flags.flagged;
-    await api.setFlagged([m.id], flagged).catch(fail);
-    refreshPending();
-    patchList((list) => list.map((x) => (x.id === m.id ? { ...x, flags: { ...x.flags, flagged } } : x)));
+    await whenAccepted(
+      api.setFlagged([m.id], flagged),
+      () => {
+        patchList((list) => withFlag(list, [m.id], "flagged", flagged));
+      },
+      fail,
+      refreshPending,
+    );
   };
 
   /**
@@ -721,15 +806,17 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
    * poubelle au survol), les autres messages partent directement à la corbeille.
    */
   const deleteIds = (ids: number[]) => {
+    // Une table construite une fois : un `find` par message coûtait n² (audit P3).
+    const byId = new Map((searchResults ?? messages).map((m) => [m.id, m]));
     const isDraft = (id: number) => {
-      const m = (searchResults ?? messages).find((x) => x.id === id);
+      const m = byId.get(id);
       return !!m && folderById.get(m.folderId)?.role === "drafts";
     };
     // Dans « Éléments supprimés » ou les indésirables : suppression
     // définitive après confirmation, comme Thunderbird ; le déplacement vers
     // la corbeille ne faisait rien, sans le dire (relecture complète n° 40).
     const inBin = (id: number) => {
-      const m = (searchResults ?? messages).find((x) => x.id === id);
+      const m = byId.get(id);
       const role = m ? folderById.get(m.folderId)?.role : undefined;
       return role === "trash" || role === "junk";
     };
@@ -747,14 +834,25 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
           }
           confirm={t("Supprimer")}
           onConfirm={async () => {
-            const removed = await api.deleteForever(final);
-            notify(removed > 1 ? t("{n} éléments supprimés", { n: removed }) : t("{n} élément supprimé", { n: removed }));
-            setSearchResults((list) => (list ? list.filter((m) => !final.includes(m.id)) : list));
-            if (others.length > 0) await moveIdsToRole(others, "trash", t("Éléments supprimés"));
+            // En tâche de fond, comme les déplacements (lot J11a).
+            hide(final);
             setSelectedIds([]);
-            setCurrent(null);
-            await reloadFolders();
+            setCurrent((c) => (c && ids.includes(c.id) ? null : c));
+            const trashing = others.length > 0 ? moveIdsToRole(others, "trash", t("Éléments supprimés")) : Promise.resolve();
+            try {
+              const removed = await api.deleteForever(final);
+              notify(removed > 1 ? t("{n} éléments supprimés", { n: removed }) : t("{n} élément supprimé", { n: removed }));
+              const gone = new Set(final);
+              setMessages((list) => list.filter((m) => !gone.has(m.id)));
+              setSearchResults((list) => (list ? list.filter((m) => !gone.has(m.id)) : list));
+            } catch (e) {
+              fail(e);
+            } finally {
+              hide(final, false);
+            }
+            await trashing;
             if (folderId) await reloadMessages(folderId);
+            void reloadFolders();
           }}
           onClose={() => setDialog(null)}
         />,
@@ -763,7 +861,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     }
     const drafts = ids.filter(isDraft).length;
     if (drafts === 0) {
-      moveIdsToRole(ids, "trash", t("Éléments supprimés"));
+      void moveIdsToRole(ids, "trash", t("Éléments supprimés"));
       return;
     }
     const n = ids.length;
@@ -822,7 +920,8 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
           notify(t("{n} échec(s)", { n: report.failed.length }), report.failed.map((f) => f.reason).join("\n"), "error");
         }
         const failedIds = new Set(report.failed.map((f) => f.id));
-        setSearchResults((list) => (list ? list.filter((m) => !ids.includes(m.id) || failedIds.has(m.id)) : list));
+        const gone = new Set(ids);
+        setSearchResults((list) => (list ? list.filter((m) => !gone.has(m.id) || failedIds.has(m.id)) : list));
         setSelectedIds([]);
         setCurrent(null);
         await reloadFolders();
@@ -831,10 +930,10 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
       .catch(fail);
 
   /** Clic droit › Restaurer : comme Supprimer, toute la sélection qui contient le message. */
-  const menuRestore = (m: MessageSummary) => restoreIds(selectedIds.includes(m.id) ? selectedIds : [m.id]);
+  const menuRestore = (m: MessageSummary) => restoreIds(selectedSet.has(m.id) ? selectedIds : [m.id]);
 
   /** Clic droit › Supprimer : toute la sélection si le message en fait partie, sinon lui seul. */
-  const menuDelete = (m: MessageSummary) => deleteIds(selectedIds.includes(m.id) ? selectedIds : [m.id]);
+  const menuDelete = (m: MessageSummary) => deleteIds(selectedSet.has(m.id) ? selectedIds : [m.id]);
 
   /** Règle préremplie depuis un message (clic droit), ouverte dans Paramètres › Règles. */
   const [ruleDraft, setRuleDraft] = useState<Rule | null>(null);
@@ -873,6 +972,8 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
   const [pimVersion, setPimVersion] = useState(0);
   // Rappels des rendez-vous (notifications), d'après les agendas en cache.
   useReminders(pimVersion, notify);
+  // Nouvelle version publiée (lot K1).
+  const update = useUpdateCheck();
   const [pimSyncing, setPimSyncing] = useState(false);
   const pimRunning = useRef(false);
 
@@ -917,7 +1018,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
 
   const openView = (next: "calendar" | "contacts") => {
     setView(next);
-    syncPimRef.current();
+    void syncPimRef.current();
   };
 
   /** Compte affiché seul (clic sur son avatar dans le bandeau), sinon tous. */
@@ -945,41 +1046,57 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
   const allFlagged = selectedMessages.length > 0 && selectedMessages.every((m) => m.flags.flagged);
 
   const toggleSeen = async () => {
-    await api.setSeen(selectedIds, !allSeen).catch(fail);
-    refreshPending();
-    patchList((list) =>
-      list.map((m) => (selectedIds.includes(m.id) ? { ...m, flags: { ...m.flags, seen: !allSeen } } : m)),
+    await whenAccepted(
+      api.setSeen(selectedIds, !allSeen),
+      () => {
+        patchList((list) => withFlag(list, selectedIds, "seen", !allSeen));
+        void reloadFolders();
+      },
+      fail,
+      refreshPending,
     );
-    reloadFolders();
   };
 
   /** Clic droit : la sélection si le message en fait partie, sinon lui seul. */
-  const selectionWith = (m: MessageSummary) => (selectedIds.includes(m.id) ? selectedIds : [m.id]);
+  const selectionWith = (m: MessageSummary) => (selectedSet.has(m.id) ? selectedIds : [m.id]);
 
   /** Clic droit › Marquer comme lu / non lu : d'après l'état du message cliqué. */
   const menuSeen = async (m: MessageSummary) => {
     const ids = selectionWith(m);
     const seen = !m.flags.seen;
-    await api.setSeen(ids, seen).catch(fail);
-    refreshPending();
-    patchList((list) => list.map((x) => (ids.includes(x.id) ? { ...x, flags: { ...x.flags, seen } } : x)));
-    reloadFolders();
+    await whenAccepted(
+      api.setSeen(ids, seen),
+      () => {
+        patchList((list) => withFlag(list, ids, "seen", seen));
+        void reloadFolders();
+      },
+      fail,
+      refreshPending,
+    );
   };
 
   /** Clic droit › indicateur : d'après l'état du message cliqué. */
   const menuFlag = async (m: MessageSummary) => {
     const ids = selectionWith(m);
     const flagged = !m.flags.flagged;
-    await api.setFlagged(ids, flagged).catch(fail);
-    refreshPending();
-    patchList((list) => list.map((x) => (ids.includes(x.id) ? { ...x, flags: { ...x.flags, flagged } } : x)));
+    await whenAccepted(
+      api.setFlagged(ids, flagged),
+      () => {
+        patchList((list) => withFlag(list, ids, "flagged", flagged));
+      },
+      fail,
+      refreshPending,
+    );
   };
 
   const toggleFlag = async () => {
-    await api.setFlagged(selectedIds, !allFlagged).catch(fail);
-    refreshPending();
-    patchList((list) =>
-      list.map((m) => (selectedIds.includes(m.id) ? { ...m, flags: { ...m.flags, flagged: !allFlagged } } : m)),
+    await whenAccepted(
+      api.setFlagged(selectedIds, !allFlagged),
+      () => {
+        patchList((list) => withFlag(list, selectedIds, "flagged", !allFlagged));
+      },
+      fail,
+      refreshPending,
     );
   };
 
@@ -1001,7 +1118,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
 
   const startDrag = (id: number) => {
     // On glisse toute la sélection si l'élément en fait partie, sinon lui seul.
-    if (selectedIds.includes(id)) setDraggingIds(selectedIds);
+    if (selectedSet.has(id)) setDraggingIds(selectedIds);
     else {
       setSelectedIds([id]);
       setDraggingIds([id]);
@@ -1159,7 +1276,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
             removed > 1 ? t("{n} éléments supprimés", { n: removed }) : t("{n} élément supprimé", { n: removed }),
           );
           await reloadFolders();
-          if (folderRef.current) reloadMessages(folderRef.current);
+          if (folderRef.current) void reloadMessages(folderRef.current);
         }}
         onClose={() => setDialog(null)}
       />,
@@ -1170,7 +1287,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
 
   /** Ce message, ou toute la sélection s'il en fait partie, en `.eml` dans Téléchargements. */
   const exportMessages = async (m: MessageSummary) => {
-    const ids = selectedIds.includes(m.id) ? selectedIds : [m.id];
+    const ids = selectedSet.has(m.id) ? selectedIds : [m.id];
     try {
       const paths = await api.exportEml(ids);
       notify(
@@ -1192,15 +1309,6 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     }
   };
 
-  /** Fichier lu en base64, sans l'en-tête `data:…;base64,`. */
-  const readBase64 = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ""));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-
   const importMessages = (f: Folder) => {
     const input = document.createElement("input");
     input.type = "file";
@@ -1215,7 +1323,10 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
       let error = "";
       for (const file of files) {
         try {
-          const report = await api.importMessages(f.id, await readBase64(file));
+          // Même plafond que le backend, vérifié avant de lire le fichier.
+          if (file.size > MAX_IMPORT_BYTES) throw t("Fichier trop volumineux : {limit} Mo au plus.", { limit: MAX_IMPORT_BYTES >> 20 });
+          // Octets envoyés tels quels (audit P7) : ni base64 ni copie en texte.
+          const report = await api.importMessages(f.id, new Uint8Array(await file.arrayBuffer()));
           imported += report.imported;
           failed += report.failed;
           if (report.error) error = report.error;
@@ -1230,7 +1341,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
         notify(imported > 1 ? t("{n} messages importés", { n: imported }) : t("{n} message importé", { n: imported }), f.name);
       }
       await reloadFolders();
-      if (folderRef.current) reloadMessages(folderRef.current);
+      if (folderRef.current) void reloadMessages(folderRef.current);
     };
     input.click();
   };
@@ -1290,7 +1401,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
       notify(t("Aucun compte"), t("Ajoutez d'abord un compte dans les paramètres."), "info");
       return;
     }
-    openComposeWindow(newDraft(currentAccount?.id ?? accounts[0].id));
+    openComposeWindow(newDraft(currentAccount?.id ?? accounts[0].id)).catch(fail);
   };
 
   const startComposeRef = useRef(startCompose);
@@ -1299,7 +1410,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     if (!runningInTauri) return;
     const unlisten = listen("tray-compose", () => startComposeRef.current());
     return () => {
-      unlisten.then((f) => f());
+      unlisten.then((f) => f(), () => {});
     };
   }, []);
 
@@ -1313,12 +1424,13 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
       alertRef.current(t("Message du serveur ({account})", { account: e.payload.account }), e.payload.text, "info"),
     );
     return () => {
-      unlisten.then((f) => f());
+      unlisten.then((f) => f(), () => {});
     };
   }, []);
 
   const startReply = (mode: "reply" | "replyAll" | "forward") => {
-    if (current) openComposeWindow(replyDraft(mode, current, accounts));
+    // Citation : corps nettoyé demandé au backend s'il manque (audit P7).
+    if (current) withViews(current).then((m) => openComposeWindow(replyDraft(mode, m, accounts)), fail);
   };
 
   /** Message envoyé depuis une fenêtre de rédaction. */
@@ -1344,9 +1456,9 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     }
     // Le dossier « Éléments envoyés » affiché se met à jour tout de suite.
     const sent = folders.find((f) => f.accountId === accountId && f.role === "sent");
-    reloadFolders();
+    void reloadFolders();
     const shown = folderRef.current;
-    if (shown && (shown === sent?.id || shown === unifiedId("sent"))) reloadMessages(shown);
+    if (shown && (shown === sent?.id || shown === unifiedId("sent"))) void reloadMessages(shown);
   };
 
   /** Ce que signalent les fenêtres secondaires (envoi, déplacement, indicateurs). */
@@ -1376,37 +1488,38 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
       // Brouillon enregistré depuis une fenêtre de rédaction : « Brouillons » affiché à jour.
       const shown = folderRef.current;
       const role = shown && (isUnified(shown) ? unifiedFolder(shown, foldersRef.current)?.role : foldersRef.current.find((f) => f.id === shown)?.role);
-      if (shown && role === "drafts") reloadMessages(shown);
+      if (shown && role === "drafts") void reloadMessages(shown);
       // Compteurs de « Brouillons » (par compte et unifié) à jour tout de suite.
-      reloadFolders();
+      void reloadFolders();
       return;
     }
     if (e.type === "moved") {
       setSelectedIds((ids) => ids.filter((x) => !e.ids.includes(x)));
-      setCurrent((m) => (m && e.ids.includes(m.id) ? null : m));
-      setSearchResults((list) => (list ? list.filter((m) => !e.ids.includes(m.id)) : list));
+      const gone = new Set(e.ids);
+      setCurrent((m) => (m && gone.has(m.id) ? null : m));
+      setSearchResults((list) => (list ? list.filter((m) => !gone.has(m.id)) : list));
     } else if (current && e.ids.includes(current.id)) {
       api.getMessage(current.id).then((m) => setCurrent((cur) => (cur && cur.id === m.id ? m : cur)), () => {});
     }
     refreshPending();
-    reloadFolders();
-    if (folderRef.current) reloadMessages(folderRef.current);
+    void reloadFolders();
+    if (folderRef.current) void reloadMessages(folderRef.current);
   };
   useEffect(() => onWindowEvent((e) => windowEventRef.current(e)), []);
 
   // Nouveaux messages signalés en temps réel par un serveur (IMAP IDLE).
   const mailChangedRef = useRef<(e: MailChanged) => void>(() => {});
   mailChangedRef.current = (e: MailChanged) => {
-    reloadFolders();
+    void reloadFolders();
     const shown = folderRef.current;
-    if (shown && (shown === e.folderId || shown === unifiedId("inbox"))) reloadMessages(shown);
+    if (shown && (shown === e.folderId || shown === unifiedId("inbox"))) void reloadMessages(shown);
     void runRulesRef.current().then(() => runPrefetch(false));
   };
   useEffect(() => {
     if (!runningInTauri) return;
     const unlisten = listen<MailChanged>("mail-changed", (ev) => mailChangedRef.current(ev.payload));
     return () => {
-      unlisten.then((f) => f());
+      unlisten.then((f) => f(), () => {});
     };
   }, []);
 
@@ -1473,8 +1586,8 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
       <ReconnectBar
         notify={notify}
         onReconnected={() => {
-          reloadFolders();
-          if (folderRef.current) reloadMessages(folderRef.current);
+          void reloadFolders();
+          if (folderRef.current) void reloadMessages(folderRef.current);
           window.dispatchEvent(new Event("vortex:pim-sync"));
         }}
       />
@@ -1506,7 +1619,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
               version={pimVersion}
               onWrite={(email, name) => {
                 if (accounts.length === 0) return;
-                openComposeWindow({ ...newDraft(accounts[0].id), to: name && name !== email ? `${name} <${email}>` : email });
+                openComposeWindow({ ...newDraft(accounts[0].id), to: name && name !== email ? `${name} <${email}>` : email }).catch(fail);
               }}
             />
           </Suspense>
@@ -1547,7 +1660,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
             }}
             onDropMessages={(target, ids) => {
               setDraggingIds([]);
-              moveTo(target, ids);
+              void moveTo(target, ids);
             }}
             onCreateFolder={createFolder}
             onDeleteFolder={deleteFolder}
@@ -1597,8 +1710,8 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
             onSelect={select}
             onOpen={(m) => {
               const isDraft = folderById.get(m.folderId)?.role === "drafts";
-              if (isDraft) openDraftWindow(m.id, m.subject);
-              else openMessageWindow(m.id, m.subject);
+              if (isDraft) openDraftWindow(m.id, m.subject).catch(fail);
+              else openMessageWindow(m.id, m.subject).catch(fail);
             }}
             onSearchSubmit={runSearch}
             searchMode={searchResults !== null || searching ? { query: searchQuery, searching } : null}
@@ -1717,6 +1830,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
         </Suspense>
       )}
       {dialog}
+      {update.found && <UpdateDialog found={update.found} onLater={update.later} onSkip={update.skip} />}
       <Toaster toasterId={toasterId} position="bottom-end" />
     </div>
   );

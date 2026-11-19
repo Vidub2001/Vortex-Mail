@@ -286,6 +286,11 @@ impl FetchItem {
     }
 }
 
+/// UID par commande, au plus (audit P4) : `uid_set` compresse les suites,
+/// mais 5 000 UID non contigus donnent une ligne de 30 000 caractères que
+/// certains serveurs refusent. 500 UID font au plus 5 500 caractères.
+const UIDS_PER_COMMAND: usize = 500;
+
 /// Ensemble d'UID compact : `[1,2,3,7]` → `1:3,7`.
 pub(crate) fn uid_set(uids: &[u32]) -> String {
     let mut sorted = uids.to_vec();
@@ -1037,7 +1042,11 @@ impl<S: Read + Write> Client<S> {
     /// Connexion perdue ([`Error::Io`], [`Error::Bye`]), commande refusée par le
     /// serveur ([`Error::No`], [`Error::Bad`]) ou réponse illisible ([`Error::Protocol`]).
     pub fn uid_fetch(&mut self, uids: &[u32], query: &str) -> Result<Vec<FetchItem>> {
-        self.uid_fetch_set(&uid_set(uids), query)
+        let mut items = Vec::new();
+        for chunk in uids.chunks(UIDS_PER_COMMAND) {
+            items.extend(self.uid_fetch_set(&uid_set(chunk), query)?);
+        }
+        Ok(items)
     }
 
     /// `UID FETCH` avec un ensemble libre, ex. `"120:*"` (tout à partir de l'UID 120).
@@ -1075,7 +1084,9 @@ impl<S: Read + Write> Client<S> {
     /// Connexion perdue ([`Error::Io`], [`Error::Bye`]), commande refusée par le
     /// serveur ([`Error::No`], [`Error::Bad`]) ou réponse illisible ([`Error::Protocol`]).
     pub fn uid_store(&mut self, uids: &[u32], operation: &str) -> Result<()> {
-        self.run(&format!("UID STORE {} {operation}", uid_set(uids)))?;
+        for chunk in uids.chunks(UIDS_PER_COMMAND) {
+            self.run(&format!("UID STORE {} {operation}", uid_set(chunk)))?;
+        }
         Ok(())
     }
 
@@ -1094,10 +1105,13 @@ impl<S: Read + Write> Client<S> {
     /// serveur ([`Error::No`], [`Error::Bad`]) ou réponse illisible ([`Error::Protocol`]).
     pub fn uid_expunge(&mut self, uids: &[u32]) -> Result<()> {
         if self.has_capability("UIDPLUS") {
-            self.run(&format!("UID EXPUNGE {}", uid_set(uids)))?;
+            for chunk in uids.chunks(UIDS_PER_COMMAND) {
+                self.run(&format!("UID EXPUNGE {}", uid_set(chunk)))?;
+            }
             return Ok(());
         }
-        let others: Vec<u32> = self.uid_search_raw("DELETED")?.into_iter().filter(|u| !uids.contains(u)).collect();
+        let ours: std::collections::HashSet<u32> = uids.iter().copied().collect();
+        let others: Vec<u32> = self.uid_search_raw("DELETED")?.into_iter().filter(|u| !ours.contains(u)).collect();
         if !others.is_empty() {
             self.uid_store(&others, "-FLAGS.SILENT (\\Deleted)")?;
         }
@@ -1116,11 +1130,11 @@ impl<S: Read + Write> Client<S> {
     /// Connexion perdue ([`Error::Io`], [`Error::Bye`]), commande refusée par le
     /// serveur ([`Error::No`], [`Error::Bad`]) ou réponse illisible ([`Error::Protocol`]).
     pub fn uid_move(&mut self, uids: &[u32], mailbox: &str) -> Result<()> {
-        let set = uid_set(uids);
-        if self.has_capability("MOVE") {
-            self.run(&format!("UID MOVE {set} {}", quote(mailbox)))?;
-        } else {
-            self.run(&format!("UID COPY {set} {}", quote(mailbox)))?;
+        let verb = if self.has_capability("MOVE") { "MOVE" } else { "COPY" };
+        for chunk in uids.chunks(UIDS_PER_COMMAND) {
+            self.run(&format!("UID {verb} {} {}", uid_set(chunk), quote(mailbox)))?;
+        }
+        if verb == "COPY" {
             self.uid_store(uids, "+FLAGS.SILENT (\\Deleted)")?;
             self.uid_expunge(uids)?;
         }
@@ -1341,6 +1355,20 @@ mod tests {
         assert!(c.run("NOOP").is_err(), "refus du serveur");
         assert_eq!(c.take_alerts(), vec!["Quota presque atteint", "Maintenance ce soir", "Refus"]);
         assert!(c.take_alerts().is_empty(), "relevées une seule fois");
+    }
+
+    #[test]
+    fn p4_grands_ensembles_d_uid_decoupes() {
+        // 1 200 UID non contigus : trois commandes de 500 au plus.
+        let uids: Vec<u32> = (1..=1200).map(|n| n * 2).collect();
+        let (mut c, sent) = scripted("F0001 OK done\r\nF0002 OK done\r\nF0003 OK done\r\n");
+        c.uid_store(&uids, "+FLAGS.SILENT (\\Seen)").unwrap();
+        let sent = String::from_utf8(sent.borrow().clone()).unwrap();
+        let lines: Vec<&str> = sent.lines().collect();
+        assert_eq!(lines.len(), 3, "trois commandes");
+        assert!(lines[0].starts_with("F0001 UID STORE 2,4,6,") && lines[0].contains(",1000 +FLAGS"), "{}", lines[0]);
+        assert!(lines.iter().all(|l| l.len() < 6_000), "lignes bornées");
+        assert!(lines[2].contains(",2400 +FLAGS"), "{}", lines[2]);
     }
 
     #[test]

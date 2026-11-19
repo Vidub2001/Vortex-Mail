@@ -18,6 +18,7 @@ import { ConfirmDialog } from "./components/Dialogs";
 import { Compose } from "./components/Compose";
 import { ReadingPane } from "./components/ReadingPane";
 import { draftInit, newDraft, replyDraft, type ComposeInit } from "./compose";
+import { withViews } from "./body-views";
 import { darkTheme, lightTheme, useThemeMode } from "./theme";
 import type { Account, AttachmentInfo, AttachmentInput, Draft, Folder, FolderRole, Message } from "./types";
 import { closeThisWindow, notifyMain, openComposeWindow, setThisWindowTitle, takeComposeInit } from "./windows";
@@ -66,7 +67,7 @@ function MessageWindow({ id, dark }: { id: number; dark: boolean }) {
   useEffect(() => {
     api.getMessage(id).then((m) => {
       setMessage(m);
-      setThisWindowTitle(m.subject || t("(sans objet)"));
+      void setThisWindowTitle(m.subject || t("(sans objet)"));
     }, (e) => setError(String(e)));
     api.listAccounts().then(setAccounts).catch(() => {});
     api.listFolders().then((l) => setFolders(l.folders)).catch(() => {});
@@ -92,7 +93,7 @@ function MessageWindow({ id, dark }: { id: number; dark: boolean }) {
       if (kind === "seen") await api.setSeen([id], on);
       else await api.setFlagged([id], on);
       setMessage({ ...message, flags: { ...message.flags, [kind]: on } });
-      notifyMain({ type: "flags", ids: [id] });
+      void notifyMain({ type: "flags", ids: [id] });
     } catch (e) {
       fail(e);
     }
@@ -151,7 +152,7 @@ function MessageWindow({ id, dark }: { id: number; dark: boolean }) {
             selectionCount={1}
             allSeen={message.flags.seen}
             allFlagged={message.flags.flagged}
-            onReply={(mode) => openComposeWindow(replyDraft(mode, message, accounts))}
+            onReply={(mode) => withViews(message).then((m) => openComposeWindow(replyDraft(mode, m, accounts)), fail)}
             onArchive={() => toRole("archive")}
             onDelete={remove}
             onMove={(folderId) => moved(api.moveMessages([id], folderId))}
@@ -211,7 +212,7 @@ function ComposeWindow({ composeKey, draftId }: { composeKey: string; draftId: n
     if (draftId !== null) {
       api.openDraft(draftId).then((d) => {
         setInit(draftInit(d));
-        setThisWindowTitle(d.subject || t("Brouillon"));
+        void setThisWindowTitle(d.subject || t("Brouillon"));
       }, (e) => setError(String(e)));
     }
   }, [draftId]);

@@ -115,26 +115,43 @@ pub(crate) async fn sync_messages(state: State<'_, AppState>, folder_id: String)
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FolderSync {
     folder_id: String,
-    /// Liste à jour (en cache si la synchronisation a échoué).
-    messages: Vec<MessageSummary>,
+    /// Liste à jour (en cache si la synchronisation a échoué) ; absente si
+    /// elle n'a pas changé depuis la version `known` donnée par l'interface.
+    messages: Option<Vec<MessageSummary>>,
+    /// Version de la liste, à renvoyer à la synchronisation suivante.
+    revision: u64,
+    /// `UIDVALIDITY` du dossier (repère des règles, audit P8).
+    uid_validity: Option<u32>,
     error: Option<String>,
 }
 
-/// Vue unifiée : synchronise plusieurs dossiers d'un coup, les comptes en parallèle.
+/// Vue unifiée : synchronise plusieurs dossiers d'un coup, les comptes en
+/// parallèle. `known` : version de la liste que l'interface a déjà, par
+/// dossier ; une liste inchangée n'est ni relue ni envoyée (audit P1 : une
+/// boîte de 30 000 messages faisait 10 Mo de JSON à chaque cycle).
 #[tauri::command]
-pub(crate) async fn sync_messages_many(state: State<'_, AppState>, folder_ids: Vec<String>) -> CmdResult<Vec<FolderSync>> {
+pub(crate) async fn sync_messages_many(
+    state: State<'_, AppState>,
+    folder_ids: Vec<String>,
+    known: Option<Vec<Option<u64>>>,
+) -> CmdResult<Vec<FolderSync>> {
     let _timed = crate::diag::timed("sync_messages_many");
     let (router, cache) = (router(&state), cache(&state));
     blocking(move || {
         let results = router.sync_many(&folder_ids);
+        let known = known.unwrap_or_default();
         let c = &mut lock_cache(&cache);
         folder_ids
             .into_iter()
             .zip(results)
-            .map(|(folder_id, r)| {
+            .enumerate()
+            .map(|(i, (folder_id, r))| {
                 let (account, path) = split_folder(&folder_id)?;
-                let messages = c.list(account, path)?;
-                Ok(FolderSync { messages, error: r.err().map(|e| e.to_string()), folder_id })
+                let revision = c.revision(account, path);
+                let unchanged = known.get(i).copied().flatten() == Some(revision);
+                let messages = if unchanged { None } else { Some(c.list(account, path)?) };
+                let uid_validity = c.uid_validity(account, path)?;
+                Ok(FolderSync { messages, revision, uid_validity, error: r.err().map(|e| e.to_string()), folder_id })
             })
             .collect()
     })
@@ -159,14 +176,47 @@ pub(crate) async fn get_message(state: State<'_, AppState>, id: MessageId) -> Cm
 }
 
 /// Corps prêt pour l'interface (lot 4) : l'original, affiché dans le volet de
-/// lecture isolé, perd ses redirections automatiques ; le corps nettoyé sert
-/// à la citation et aux brouillons.
+/// lecture isolé, perd ses redirections automatiques. Le corps nettoyé et le
+/// texte ne sont plus calculés ici (audit P7) : en mode Original ils ne
+/// servaient qu'à répondre ; l'interface les demande à [`body_views`].
 fn prepare_body(mut message: Message) -> Message {
     message.body_html = sanitize::strip_refresh(&message.body_html);
-    message.body_simple = sanitize::simplify(&message.body_html);
-    message.body_text = mail_core::compose::html_to_text(&message.body_simple);
     message
 }
+
+/// Corps nettoyé (liste blanche) et texte brut d'un corps HTML (audit P7).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BodyViews {
+    /// Corps nettoyé : mode « HTML simplifié », citation, brouillons.
+    simple: String,
+    /// Texte brut tiré du corps nettoyé : mode « Texte ».
+    text: String,
+}
+
+fn body_views_of(html: &str) -> BodyViews {
+    let simple = sanitize::simplify(html);
+    let text = mail_core::compose::html_to_text(&simple);
+    BodyViews { simple, text }
+}
+
+/// Vues d'un corps rendu par [`get_message`], calculées seulement quand
+/// l'affichage ou une réponse en a besoin (audit P7). Le HTML vient de la
+/// fenêtre : il repasse par la liste blanche comme tout corps de message, et
+/// rien n'est relu ni déchiffré une seconde fois.
+#[tauri::command]
+pub(crate) async fn body_views(html: String) -> CmdResult<BodyViews> {
+    let _timed = crate::diag::timed("body_views");
+    if html.len() > MAX_VIEW_HTML {
+        return Err(tr!("Corps trop volumineux pour cet affichage : {limit} Mo au plus.", limit = MAX_VIEW_HTML >> 20));
+    }
+    blocking(move || Ok(body_views_of(&html))).await
+}
+
+/// Corps reçu par [`body_views`], au plus : bien au-delà d'un message réel
+/// (25 Mo d'images intégrées au plus, voir `images.rs`), même plafond que
+/// l'état confié à une fenêtre (`windows::MAX_INIT`).
+const MAX_VIEW_HTML: usize = 64 * 1024 * 1024;
 
 #[tauri::command]
 pub(crate) async fn set_seen(state: State<'_, AppState>, ids: Vec<MessageId>, seen: bool) -> CmdResult<()> {
@@ -187,9 +237,8 @@ pub(crate) async fn set_flagged(state: State<'_, AppState>, ids: Vec<MessageId>,
 pub(crate) async fn move_messages(state: State<'_, AppState>, ids: Vec<MessageId>, target_folder_id: String) -> CmdResult<MoveReport> {
     let (router, journal) = (router(&state), Arc::clone(&state.journal));
     blocking(move || {
-        let r = &router;
-        let mut j = lock(&journal)?;
-        r.move_or_queue(&mut j, &ids, Some(&target_folder_id), None).map_err(|e| e.to_string())
+        // Journal partagé : verrouillé un instant à chaque étape (audit P4).
+        router.move_or_queue(&journal, &ids, Some(&target_folder_id), None).map_err(|e| e.to_string())
     })
     .await
 }
@@ -198,12 +247,7 @@ pub(crate) async fn move_messages(state: State<'_, AppState>, ids: Vec<MessageId
 #[tauri::command]
 pub(crate) async fn move_to_role(state: State<'_, AppState>, ids: Vec<MessageId>, role: FolderRole) -> CmdResult<MoveReport> {
     let (router, journal) = (router(&state), Arc::clone(&state.journal));
-    blocking(move || {
-        let r = &router;
-        let mut j = lock(&journal)?;
-        r.move_or_queue(&mut j, &ids, None, Some(role)).map_err(|e| e.to_string())
-    })
-    .await
+    blocking(move || router.move_or_queue(&journal, &ids, None, Some(role)).map_err(|e| e.to_string())).await
 }
 
 // ------------------------------------------------------------------ envoi
@@ -301,6 +345,11 @@ pub(crate) async fn send_message(
         match result {
             Ok(report) => {
                 crate::windows::drop_backup(&cache, &message.window);
+                // Destinataires proposés à la complétion (lot J13) ; un échec
+                // ici ne change rien à l'envoi, déjà fait.
+                if let Err(e) = crate::pim::note_sent(&cache, &message.account_id, &message.draft) {
+                    crate::diag::report(&e);
+                }
                 crate::windows::send_succeeded(&app, &report, message.account_id, answered_id);
                 if draft_id.is_some() {
                     crate::windows::drafts_changed(&app);
@@ -361,6 +410,7 @@ pub(crate) async fn open_draft(state: State<'_, AppState>, id: MessageId) -> Cmd
 /// Recherche immédiate dans le cache (fonctionne hors connexion).
 #[tauri::command]
 pub(crate) async fn search_local(state: State<'_, AppState>, query: String) -> CmdResult<Vec<MessageSummary>> {
+    let _timed = crate::diag::timed("search_local");
     let cache = cache(&state);
     // Recherche mal écrite (date illisible, critère inconnu) : message clair (lot E7).
     let query = mail_core::search::SearchQuery::parse(&query)?;
@@ -370,6 +420,7 @@ pub(crate) async fn search_local(state: State<'_, AppState>, query: String) -> C
 /// Recherche sur les serveurs, dans tous les dossiers de tous les comptes.
 #[tauri::command]
 pub(crate) async fn search_messages(state: State<'_, AppState>, query: String) -> CmdResult<SearchReport> {
+    let _timed = crate::diag::timed("search_messages");
     let router = router(&state);
     let query = mail_core::search::SearchQuery::parse(&query)?;
     blocking(move || Ok(router.search(&query))).await
@@ -446,8 +497,17 @@ pub(crate) async fn pim_delete(state: State<'_, AppState>, id: String) -> CmdRes
 /// Adresses proposées pendant la saisie d'un destinataire.
 #[tauri::command]
 pub(crate) async fn address_suggest(state: State<'_, AppState>, query: String) -> CmdResult<Vec<crate::pim::Suggestion>> {
+    let _timed = crate::diag::timed("address_suggest");
     let cache = cache(&state);
     blocking(move || crate::pim::suggest(&cache, &query)).await
+}
+
+/// Écarte une adresse collectée de la complétion (lot J13) ; un contact du
+/// carnet reste proposé.
+#[tauri::command]
+pub(crate) async fn forget_address(state: State<'_, AppState>, email: String) -> CmdResult<()> {
+    let cache = cache(&state);
+    blocking(move || crate::pim::forget_address(&cache, &email)).await
 }
 
 /// Invitation reçue (pièce jointe `.ics`) : rendez-vous qu'elle contient, et le calendrier brut.
@@ -626,12 +686,7 @@ pub(crate) async fn answer_event(state: State<'_, AppState>, id: String, reply: 
 #[tauri::command]
 pub(crate) async fn flush_pending(state: State<'_, AppState>) -> CmdResult<FlushReport> {
     let (router, journal) = (router(&state), Arc::clone(&state.journal));
-    blocking(move || {
-        let r = &router;
-        let mut j = lock(&journal)?;
-        Ok(r.flush_pending(&mut j))
-    })
-    .await
+    blocking(move || Ok(router.flush_pending(&journal))).await
 }
 
 /// Messages concernés par des actions en attente du réseau.
@@ -643,17 +698,33 @@ pub(crate) async fn pending_count(state: State<'_, AppState>) -> CmdResult<u32> 
 
 // ------------------------------------------------------------------ pièces jointes
 
-/// `nom.pdf`, puis `nom (1).pdf`, `nom (2).pdf`… si le fichier existe déjà.
-fn unique_path(dir: &Path, name: &str) -> PathBuf {
-    let candidate = dir.join(name);
-    if !candidate.exists() {
-        return candidate;
-    }
+/// Crée `nom.pdf`, sinon `nom (1).pdf`, `nom (2).pdf`… : jamais un fichier
+/// existant, ni un lien symbolique, même cassé. Création exclusive
+/// (`create_new`) : avant, `exists()` répondait « non » pour un lien cassé que
+/// l'écriture suivait ensuite, et le fichier pouvait apparaître entre le test
+/// et l'écriture (audit S1).
+fn create_unique(dir: &Path, name: &str) -> Result<(PathBuf, std::fs::File), String> {
     let (stem, ext) = match name.rsplit_once('.') {
         Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
         _ => (name.to_string(), String::new()),
     };
-    (1..u32::MAX).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| !p.exists()).unwrap_or(candidate)
+    for n in 0..10_000u32 {
+        let path = if n == 0 { dir.join(name) } else { dir.join(format!("{stem} ({n}){ext}")) };
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(tr!("écriture de {name} : {e}", name = path.display(), e = e)),
+        }
+    }
+    let e = std::io::Error::from(std::io::ErrorKind::AlreadyExists);
+    Err(tr!("écriture de {name} : {e}", name = dir.join(name).display(), e = e))
+}
+
+/// Écrit `data` dans un nouveau fichier de `dir` (voir [`create_unique`]) ; rend son chemin.
+fn write_new(dir: &Path, name: &str, data: &[u8]) -> Result<PathBuf, String> {
+    let (path, mut file) = create_unique(dir, name)?;
+    std::io::Write::write_all(&mut file, data).map_err(|e| tr!("écriture de {name} : {e}", name = path.display(), e = e))?;
+    Ok(path)
 }
 
 // ------------------------------------------------------------------ import et export (lot E8a)
@@ -674,8 +745,9 @@ pub(crate) async fn export_eml(state: State<'_, AppState>, ids: Vec<MessageId>) 
             let raw = router.fetch_raw(id).map_err(|e| e.to_string())?;
             let subject = mail_core::compose::header_value(&raw.bytes, "Subject").unwrap_or_default();
             let subject = if subject.trim().is_empty() { tr!("message").to_string() } else { subject };
-            let path = unique_path(&dir, &attachments::safe_file_name(&format!("{}.eml", subject.trim())));
-            std::fs::write(&path, &raw.bytes).map_err(|e| tr!("écriture de {name} : {e}", name = path.display(), e = e))?;
+            let path = write_new(&dir, &attachments::safe_file_name(&format!("{}.eml", subject.trim())), &raw.bytes)?;
+            // Message venu d'Internet, comme une pièce jointe enregistrée (audit S3).
+            attachments::mark_from_internet(&path);
             paths.push(path.display().to_string());
         }
         Ok(paths)
@@ -700,15 +772,17 @@ pub(crate) async fn export_mbox(state: State<'_, AppState>, folder_id: String) -
     blocking(move || {
         let name = router.folder(&folder_id).map_or_else(|| tr!("dossier").to_string(), |f| f.name);
         std::fs::create_dir_all(&dir).map_err(|e| tr!("dossier {dir} : {e}", dir = dir.display(), e = e))?;
-        let path = unique_path(&dir, &attachments::safe_file_name(&format!("{name}.mbox")));
-        let file = std::fs::File::create(&path).map_err(|e| tr!("écriture de {name} : {e}", name = path.display(), e = e))?;
+        let (path, file) = create_unique(&dir, &attachments::safe_file_name(&format!("{name}.mbox")))?;
         let mut out = std::io::BufWriter::new(file);
         let written = router.export_folder(&folder_id, &mut out).and_then(|count| {
             std::io::Write::flush(&mut out).map_err(|e| MailError::Backend(e.to_string()))?;
             Ok(count)
         });
         match written {
-            Ok(count) => Ok(FolderExport { path: path.display().to_string(), count }),
+            Ok(count) => {
+                attachments::mark_from_internet(&path);
+                Ok(FolderExport { path: path.display().to_string(), count })
+            }
             Err(e) => {
                 // Fichier écrit par Vortex Mail à l'instant, jamais un fichier de l'utilisateur.
                 drop(out);
@@ -720,23 +794,38 @@ pub(crate) async fn export_mbox(state: State<'_, AppState>, folder_id: String) -
     .await
 }
 
-/// Dépose dans le dossier `folder_id` les messages d'un fichier `.eml` ou
-/// `.mbox`, lu par la fenêtre et transmis en base64.
+/// En-tête qui porte le dossier cible d'un import, encodé comme une adresse
+/// (`encodeURIComponent`) : un nom de dossier n'est pas toujours en ASCII.
+const IMPORT_FOLDER_HEADER: &str = "x-vortex-folder";
+
+/// Dossier cible et contenu d'une demande d'import (audit P7) : le fichier
+/// arrive tel quel, en octets, sans passer par du base64 ni du JSON.
+fn import_request(body: &tauri::ipc::InvokeBody, folder: Option<&str>) -> CmdResult<(String, Vec<u8>)> {
+    let Some(folder) = folder.map(crate::oauth::url_decode).filter(|f| !f.is_empty()) else {
+        return Err(tr!("dossier d'import absent").into());
+    };
+    let tauri::ipc::InvokeBody::Raw(data) = body else {
+        return Err(tr!("fichier d'import attendu en octets").into());
+    };
+    if data.len() > MAX_IMPORT {
+        return Err(tr!("Fichier trop volumineux : {limit} Mo au plus.", limit = MAX_IMPORT / (1024 * 1024)));
+    }
+    Ok((folder, data.clone()))
+}
+
+/// Dépose dans un dossier les messages d'un fichier `.eml` ou `.mbox`, lu par
+/// la fenêtre et transmis en octets (audit P7 : plus de base64, qui gardait le
+/// fichier trois à quatre fois en mémoire). Le dossier est dans l'en-tête
+/// [`IMPORT_FOLDER_HEADER`].
 #[tauri::command]
 pub(crate) async fn import_messages(
     state: State<'_, AppState>,
-    folder_id: String,
-    content: String,
+    request: tauri::ipc::Request<'_>,
 ) -> CmdResult<crate::router::ImportReport> {
+    let folder = request.headers().get(IMPORT_FOLDER_HEADER).and_then(|v| v.to_str().ok());
+    let (folder_id, data) = import_request(request.body(), folder)?;
     let router = router(&state);
-    blocking(move || {
-        if content.len() / 4 * 3 > MAX_IMPORT {
-            return Err(tr!("Fichier trop volumineux : {limit} Mo au plus.", limit = MAX_IMPORT / (1024 * 1024)));
-        }
-        let data = mail_core::compose::base64_decode(&content)?;
-        router.import_messages(&folder_id, &data).map_err(|e| e.to_string())
-    })
-    .await
+    blocking(move || router.import_messages(&folder_id, &data).map_err(|e| e.to_string())).await
 }
 
 /// Taille maximale d'un agenda ou d'un carnet importé.
@@ -753,8 +842,7 @@ pub(crate) async fn export_pim(state: State<'_, AppState>, collection: String) -
         let (text, count) = crate::pim::export_collection(&cache, &collection)?;
         let extension = if info.kind == "contacts" { "vcf" } else { "ics" };
         std::fs::create_dir_all(&dir).map_err(|e| tr!("dossier {dir} : {e}", dir = dir.display(), e = e))?;
-        let path = unique_path(&dir, &attachments::safe_file_name(&format!("{}.{extension}", info.name)));
-        std::fs::write(&path, text).map_err(|e| tr!("écriture de {name} : {e}", name = path.display(), e = e))?;
+        let path = write_new(&dir, &attachments::safe_file_name(&format!("{}.{extension}", info.name)), text.as_bytes())?;
         Ok(FolderExport { path: path.display().to_string(), count })
     })
     .await
@@ -891,6 +979,12 @@ pub(crate) async fn open_url(url: String) -> CmdResult<()> {
     crate::oauth::open_browser(&url)
 }
 
+/// Nouvelle version publiée sur GitHub (lot K1) ; `None` : déjà à jour.
+#[tauri::command]
+pub(crate) async fn check_update() -> CmdResult<Option<crate::update::NewVersion>> {
+    blocking(|| crate::update::check(env!("CARGO_PKG_VERSION"))).await
+}
+
 /// Pièce jointe ouverte avec l'application par défaut, si son type fait partie
 /// des types sûrs et que son contenu correspond à son extension (lot 2) ;
 /// sinon, l'utilisateur est invité à la télécharger.
@@ -917,8 +1011,7 @@ pub(crate) async fn save_attachment(state: State<'_, AppState>, id: MessageId, i
     blocking(move || {
         let a = router.attachment(id, index).map_err(|e| e.to_string())?;
         std::fs::create_dir_all(&dir).map_err(|e| tr!("dossier {dir} : {e}", dir = dir.display(), e = e))?;
-        let path = unique_path(&dir, &attachments::safe_file_name(&a.name));
-        std::fs::write(&path, &a.data).map_err(|e| tr!("écriture de {name} : {e}", name = path.display(), e = e))?;
+        let path = write_new(&dir, &attachments::safe_file_name(&a.name), &a.data)?;
         attachments::mark_from_internet(&path);
         Ok(path.display().to_string())
     })
@@ -1225,12 +1318,7 @@ pub(crate) async fn empty_folder(state: State<'_, AppState>, folder_id: String) 
 #[tauri::command]
 pub(crate) async fn restore_messages(state: State<'_, AppState>, ids: Vec<MessageId>) -> CmdResult<RestoreReport> {
     let (router, journal) = (router(&state), Arc::clone(&state.journal));
-    blocking(move || {
-        let r = &router;
-        let mut j = lock(&journal)?;
-        r.restore(&mut j, &ids).map_err(|e| e.to_string())
-    })
-    .await
+    blocking(move || router.restore(&journal, &ids).map_err(|e| e.to_string())).await
 }
 
 /// Supprime définitivement des messages de la corbeille ou du courrier indésirable.
@@ -1539,6 +1627,62 @@ pub(crate) async fn list_account_configs(state: State<'_, AppState>) -> CmdResul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Dossier vide, propre au test, dans le dossier temporaire du système.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("vortex-test-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dossier de test");
+        dir
+    }
+
+    #[test]
+    fn p7_import_recu_en_octets() {
+        let raw = tauri::ipc::InvokeBody::Raw(b"From: a@example.com\r\n\r\nCorps".to_vec());
+        let (folder, data) = import_request(&raw, Some("perso%3AArchives%2F2026%20%C3%A9t%C3%A9")).expect("demande valide");
+        assert_eq!(folder, "perso:Archives/2026 été", "nom de dossier décodé");
+        assert_eq!(data, b"From: a@example.com\r\n\r\nCorps", "octets reçus tels quels");
+        assert!(import_request(&raw, None).is_err(), "dossier absent refusé");
+        let json = tauri::ipc::InvokeBody::Json(serde_json::Value::Null);
+        assert!(import_request(&json, Some("perso%3AINBOX")).is_err(), "contenu JSON refusé");
+        let big = tauri::ipc::InvokeBody::Raw(vec![b'a'; MAX_IMPORT + 1]);
+        assert!(import_request(&big, Some("perso%3AINBOX")).is_err(), "fichier trop gros refusé");
+    }
+
+    #[test]
+    fn p7_vues_du_corps_a_la_demande() {
+        let original = r#"<p onclick="x()">Bonjour <b>Anne</b></p><script>alert(1)</script><img src="https://pistage.example/p.gif">"#;
+        let views = body_views_of(original);
+        assert!(!views.simple.contains("script") && !views.simple.contains("onclick"), "liste blanche appliquée : {}", views.simple);
+        assert!(!views.simple.contains("pistage.example"), "image distante retirée : {}", views.simple);
+        assert!(views.simple.contains("<b>Anne</b>"), "mise en forme gardée : {}", views.simple);
+        assert_eq!(views.text.trim(), "Bonjour Anne", "texte tiré du corps nettoyé");
+    }
+
+    #[test]
+    fn s1_fichier_existant_jamais_remplace() {
+        let dir = scratch("s1-existant");
+        std::fs::write(dir.join("facture.pdf"), b"ancien").unwrap();
+        let path = write_new(&dir, "facture.pdf", b"nouveau").unwrap();
+        assert_eq!(path, dir.join("facture (1).pdf"));
+        assert_eq!(std::fs::read(dir.join("facture.pdf")).unwrap(), b"ancien", "l'existant est intact");
+        assert_eq!(std::fs::read(&path).unwrap(), b"nouveau");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn s1_lien_symbolique_casse_jamais_suivi() {
+        // Un autre programme pose « facture.pdf » -> un fichier qui n'existe pas
+        // encore ; l'écriture ne doit jamais le créer.
+        let dir = scratch("s1-lien");
+        let target = dir.join("cible-hors-du-dossier");
+        std::os::unix::fs::symlink(&target, dir.join("facture.pdf")).unwrap();
+        let path = write_new(&dir, "facture.pdf", b"contenu").unwrap();
+        assert_eq!(path, dir.join("facture (1).pdf"));
+        assert!(!target.exists(), "la cible du lien n'a pas été écrite");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn account(imap_host: &str, smtp_host: &str, password: &str, same: bool) -> AccountConfig {
         serde_json::from_value(serde_json::json!({

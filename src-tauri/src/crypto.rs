@@ -115,45 +115,53 @@ fn compress(state: &mut [u32; 8], block: &[u8]) {
 }
 
 /// SHA-256 incrémental (permet de précalculer les états HMAC de PBKDF2).
+/// Tampon fixe : copier un état (deux fois par tour de PBKDF2, 600 000 tours)
+/// n'alloue rien (audit P7).
 #[derive(Clone)]
 struct Sha256 {
     state: [u32; 8],
-    buffer: Vec<u8>,
+    buffer: [u8; 64],
+    filled: usize,
     length: u64,
 }
 
 impl Sha256 {
     fn new() -> Self {
-        Sha256 { state: H0, buffer: Vec::with_capacity(64), length: 0 }
+        Sha256 { state: H0, buffer: [0; 64], filled: 0, length: 0 }
     }
 
     fn update(&mut self, mut data: &[u8]) {
         self.length += u64::try_from(data.len()).expect("une longueur en octets tient sur 64 bits");
-        if !self.buffer.is_empty() {
-            let take = (64 - self.buffer.len()).min(data.len());
-            self.buffer.extend_from_slice(&data[..take]);
+        if self.filled > 0 {
+            let take = (64 - self.filled).min(data.len());
+            self.buffer[self.filled..self.filled + take].copy_from_slice(&data[..take]);
+            self.filled += take;
             data = &data[take..];
-            if self.buffer.len() == 64 {
-                let block = std::mem::take(&mut self.buffer);
-                compress(&mut self.state, &block);
+            if self.filled < 64 {
+                // Bloc toujours incomplet : toute la saisie y est entrée.
+                return;
             }
+            let block = self.buffer;
+            compress(&mut self.state, &block);
+            self.filled = 0;
         }
         while data.len() >= 64 {
             compress(&mut self.state, &data[..64]);
             data = &data[64..];
         }
-        self.buffer.extend_from_slice(data);
+        self.buffer[..data.len()].copy_from_slice(data);
+        self.filled = data.len();
     }
 
     fn finish(mut self) -> [u8; 32] {
         let bits = self.length * 8;
-        let mut tail = std::mem::take(&mut self.buffer);
-        tail.push(0x80);
-        while tail.len() % 64 != 56 {
-            tail.push(0);
-        }
-        tail.extend_from_slice(&bits.to_be_bytes());
-        for block in tail.chunks(64) {
+        // Bourrage : 0x80, des zéros, puis la longueur en bits ; un ou deux blocs.
+        let mut tail = [0u8; 128];
+        tail[..self.filled].copy_from_slice(&self.buffer[..self.filled]);
+        tail[self.filled] = 0x80;
+        let total = if self.filled < 56 { 64 } else { 128 };
+        tail[total - 8..total].copy_from_slice(&bits.to_be_bytes());
+        for block in tail[..total].chunks(64) {
             compress(&mut self.state, block);
         }
         let mut out = [0u8; 32];
@@ -328,6 +336,46 @@ pub(crate) fn seal(password: &str, plain: &[u8]) -> Result<String, String> {
     seal_with(password, plain, ITERATIONS)
 }
 
+/// Clés tirées d'un mot de passe une fois pour toutes (coffre du mode
+/// portable, audit P7 : 600 000 tours de PBKDF2 à chaque secret enregistré).
+/// Chaque fichier écrit garde un nonce aléatoire neuf.
+pub(crate) struct SealKey {
+    iterations: u32,
+    salt: [u8; 16],
+    enc: [u8; 32],
+    mac: [u8; 32],
+}
+
+impl SealKey {
+    /// Nouveau sel, clés tirées de `password`.
+    ///
+    /// # Errors
+    ///
+    /// Mot de passe trop court, ou générateur aléatoire du système indisponible.
+    pub(crate) fn derive(password: &str) -> Result<Self, String> {
+        Self::derive_with(password, ITERATIONS)
+    }
+
+    fn derive_with(password: &str, iterations: u32) -> Result<Self, String> {
+        if password.chars().count() < 8 {
+            return Err(tr!("Mot de passe trop court : 8 caractères au moins.").into());
+        }
+        let salt = crate::oauth::random_bytes::<16>()?;
+        let (enc, mac) = keys(password, &salt, iterations);
+        Ok(SealKey { iterations, salt, enc, mac })
+    }
+
+    /// Comme [`seal`], sans refaire le calcul de clé.
+    ///
+    /// # Errors
+    ///
+    /// Générateur aléatoire du système indisponible.
+    pub(crate) fn seal(&self, plain: &[u8]) -> Result<String, String> {
+        let nonce = crate::oauth::random_bytes::<12>()?;
+        Ok(sealed_file(self.iterations, &self.salt, &nonce, &self.enc, &self.mac, plain))
+    }
+}
+
 pub(crate) fn seal_with(password: &str, plain: &[u8], iterations: u32) -> Result<String, String> {
     if password.chars().count() < 8 {
         return Err(tr!("Mot de passe trop court : 8 caractères au moins.").into());
@@ -335,20 +383,25 @@ pub(crate) fn seal_with(password: &str, plain: &[u8], iterations: u32) -> Result
     let salt = crate::oauth::random_bytes::<16>()?;
     let nonce = crate::oauth::random_bytes::<12>()?;
     let (enc, mac_key) = keys(password, &salt, iterations);
-    let data = chacha20(&enc, &nonce, 1, plain);
-    let mac = authenticate(&mac_key, iterations, &salt, &nonce, &data);
-    Ok(Json::obj([
+    Ok(sealed_file(iterations, &salt, &nonce, &enc, &mac_key, plain))
+}
+
+/// Contenu du fichier chiffré (JSON), clés déjà tirées.
+fn sealed_file(iterations: u32, salt: &[u8], nonce: &[u8; 12], enc: &[u8; 32], mac_key: &[u8; 32], plain: &[u8]) -> String {
+    let data = chacha20(enc, nonce, 1, plain);
+    let mac = authenticate(mac_key, iterations, salt, nonce, &data);
+    Json::obj([
         ("format", FORMAT.into()),
         ("version", VERSION.into()),
         ("kdf", "pbkdf2-sha256".into()),
         ("iterations", i64::from(iterations).into()),
         ("cipher", "chacha20+hmac-sha256".into()),
-        ("salt", base64(&salt).into()),
-        ("nonce", base64(&nonce).into()),
+        ("salt", base64(salt).into()),
+        ("nonce", base64(nonce).into()),
         ("data", base64(&data).into()),
         ("mac", base64(&mac).into()),
     ])
-    .to_text())
+    .to_text()
 }
 
 /// Pourquoi un fichier chiffré ne s'ouvre pas.
@@ -439,6 +492,19 @@ mod tests {
     }
 
     #[test]
+    fn p7_cle_du_coffre_tiree_une_fois() {
+        // 1 000 tours : le même calcul que 600 000, en un instant pour le test.
+        let key = SealKey::derive_with("mot de passe maître", 1000).unwrap();
+        let (a, b) = (key.seal(b"secret 1").unwrap(), key.seal(b"secret 2").unwrap());
+        assert_eq!(open("mot de passe maître", &a).unwrap(), b"secret 1", "lisible comme un fichier ordinaire");
+        assert_eq!(open("mot de passe maître", &b).unwrap(), b"secret 2");
+        assert_ne!(envelope(&a).unwrap().nonce, envelope(&b).unwrap().nonce, "un nonce neuf à chaque écriture");
+        assert_eq!(sealed_iterations(&a), Some(1000));
+        assert!(open("autre mot de passe", &a).is_err());
+        assert!(SealKey::derive("court").is_err(), "8 caractères au moins");
+    }
+
+    #[test]
     fn sha256_vectors() {
         assert_eq!(hex(&sha256(b"abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
         assert_eq!(hex(&sha256(b"")), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
@@ -449,6 +515,14 @@ mod tests {
             h.update(part);
         }
         assert_eq!(h.finish(), sha256(&long));
+        // Vecteur du NIST (un million de « a »), saisi par morceaux de 7 octets :
+        // blocs incomplets complétés au fil des appels (tampon fixe, audit P7).
+        let million = vec![b'a'; 1_000_000];
+        let mut h = Sha256::new();
+        for part in million.chunks(7) {
+            h.update(part);
+        }
+        assert_eq!(hex(&h.finish()), "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
         let long = b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
         assert_eq!(hex(&sha256(long)), "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
     }

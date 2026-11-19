@@ -28,5 +28,6 @@ pub use lang::set_language;
 pub use memory::MemoryStore;
 pub use model::*;
 pub use ops::{
-    move_messages, move_to_role, resume_moves, FailedMove, Journal, JournalEntry, JournalState, JournalStore, MoveReport, MovedMessage,
+    move_messages, move_to_role, resume_moves, FailedMove, Journal, JournalAccess, JournalEntry, JournalState, JournalStore, MoveReport,
+    MovedMessage, SharedJournal,
 };

@@ -4,7 +4,10 @@
 // comprises dans la sauvegarde de la configuration).
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { secureStore } from "./secure-store";
+import { applySync, knownRevisions, type KnownList } from "./lists";
 import { t } from "./i18n";
+import { randomId } from "./text";
 import type { Folder, Message, MessageSummary, MoveReport } from "./types";
 
 export type RuleField = "from" | "recipients" | "subject" | "body" | "attachment";
@@ -89,7 +92,7 @@ const CHANGED = "vortex-rules";
 
 export function loadRules(): Rule[] {
   try {
-    const list = JSON.parse(localStorage.getItem(KEY) ?? "[]") as Rule[];
+    const list = JSON.parse(secureStore.getItem(KEY) ?? "[]") as Rule[];
     return Array.isArray(list) ? list : [];
   } catch {
     return [];
@@ -98,7 +101,7 @@ export function loadRules(): Rule[] {
 
 export function saveRules(rules: Rule[]) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(rules));
+    secureStore.setItem(KEY, JSON.stringify(rules));
   } catch {
     // stockage indisponible : règles valables jusqu'à la fermeture
   }
@@ -121,7 +124,7 @@ export function useRules(): Rule[] {
 
 export function newRule(account = "all"): Rule {
   return {
-    id: `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    id: `r${Date.now().toString(36)}${randomId(4)}`,
     name: "",
     enabled: true,
     account,
@@ -162,12 +165,61 @@ export function doneKey(m: MessageSummary): string {
   return m.uid ? `${messageKey(m)}.${m.uid}` : messageKey(m);
 }
 
+/**
+ * Repère d'une boîte de réception (audit P8) : `UIDVALIDITY`, plus grand UID
+ * examiné, et UID des messages à retenter. Il remplace la liste des
+ * empreintes de la version 3, qui grossissait avec la boîte (au-delà de
+ * 200 000 messages environ, elle dépassait le stockage de la fenêtre sans le
+ * dire) et se rehachait en entier à chaque passage.
+ */
+export interface InboxMark {
+  validity: number | null;
+  maxUid: number;
+  retry: number[];
+}
+
+export const MARKS_KEY = "vortex.rules.marks.v1";
+
+function loadMarks(): Record<string, InboxMark> {
+  try {
+    const marks = JSON.parse(localStorage.getItem(MARKS_KEY) ?? "{}") as unknown;
+    return marks && typeof marks === "object" ? (marks as Record<string, InboxMark>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveMarks(marks: Record<string, InboxMark>) {
+  try {
+    localStorage.setItem(MARKS_KEY, JSON.stringify(marks));
+  } catch {
+    // stockage indisponible : la boîte sera seulement notée au prochain démarrage
+  }
+}
+
+/** Plus grand UID de `messages`, au moins `floor`. */
+function maxUid(messages: readonly MessageSummary[], floor: number): number {
+  return messages.reduce((max, m) => Math.max(max, m.uid ?? 0), floor);
+}
+
+/**
+ * Repère tiré d'une liste « examinés » de la version 3 : le plus grand UID
+ * examiné, et à retenter les messages plus anciens qui n'y étaient pas.
+ */
+export function markFromLegacy(messages: readonly MessageSummary[], done: readonly string[], validity: number | null): InboxMark {
+  const examined = new Set(done);
+  const seen = messages.filter((m) => examined.has(doneKey(m)));
+  const top = maxUid(seen, 0);
+  const retry = messages.filter((m) => !examined.has(doneKey(m)) && m.uid && m.uid <= top).map((m) => m.uid ?? 0);
+  return { validity, maxUid: top, retry };
+}
+
 function loadDone(): Record<string, string[]> {
   try {
     // Anciennes versions : numéros instables, puis empreintes sans UID.
     localStorage.removeItem("vortex.rules.done");
     localStorage.removeItem("vortex.rules.done.v2");
-    return JSON.parse(localStorage.getItem(DONE_KEY) ?? "{}") as Record<string, string[]>;
+    return JSON.parse(secureStore.getItem(DONE_KEY) ?? "{}") as Record<string, string[]>;
   } catch {
     return {};
   }
@@ -175,7 +227,9 @@ function loadDone(): Record<string, string[]> {
 
 function saveDone(done: Record<string, string[]>) {
   try {
-    localStorage.setItem(DONE_KEY, JSON.stringify(done));
+    // Plus rien à convertir : l'ancienne liste disparaît.
+    if (Object.keys(done).length === 0) return secureStore.removeItem(DONE_KEY);
+    secureStore.setItem(DONE_KEY, JSON.stringify(done));
   } catch {
     // stockage indisponible : examen refait au prochain démarrage (sans effet sur les messages déjà classés)
   }
@@ -183,7 +237,7 @@ function saveDone(done: Record<string, string[]>) {
 
 function loadMoved(): Record<string, number> {
   try {
-    const moved = JSON.parse(localStorage.getItem(MOVED_KEY) ?? "{}") as unknown;
+    const moved = JSON.parse(secureStore.getItem(MOVED_KEY) ?? "{}") as unknown;
     return moved && typeof moved === "object" ? (moved as Record<string, number>) : {};
   } catch {
     return {};
@@ -197,7 +251,7 @@ function noteMoved(keys: string[], now = Date.now()) {
   for (const k of keys) moved[k] = now;
   const kept = Object.fromEntries(Object.entries(moved).filter(([, at]) => now - at < MOVED_MS));
   try {
-    localStorage.setItem(MOVED_KEY, JSON.stringify(kept));
+    secureStore.setItem(MOVED_KEY, JSON.stringify(kept));
   } catch {
     // stockage indisponible : protection contre les boucles valable jusqu'à la fermeture seulement
   }
@@ -390,6 +444,8 @@ export async function applyRules(messages: MessageSummary[], folder: Folder, rul
 }
 
 let running = false;
+/** Listes des boîtes de réception au passage précédent, avec leur version (audit P8). */
+const inboxLists = new Map<string, KnownList>();
 
 /**
  * Nouveaux messages des boîtes de réception : chaque boîte est synchronisée,
@@ -409,47 +465,77 @@ export async function runInboxRules(folders: Folder[]): Promise<InboxReport | nu
   try {
     const inboxes = folders.filter((f) => f.role === "inbox");
     if (inboxes.length === 0) return null;
-    const results = await api.syncMessagesMany(inboxes.map((f) => f.id));
-    const done = loadDone();
+    const ids = inboxes.map((f) => f.id);
+    // Boîte inchangée depuis le passage précédent : ni relue, ni rehachée (audit P8).
+    const synced = await api.syncChangedLists(ids, knownRevisions(inboxLists, ids));
+    const { lists } = applySync(inboxLists, synced);
+    const marks = loadMarks();
+    const legacy = loadDone();
+    let dirty = false;
     const moved = loadMoved();
-    for (const r of results) {
+    for (const [i, r] of synced.entries()) {
       if (r.error) continue;
       const folder = inboxes.find((f) => f.id === r.folderId);
       if (!folder) continue;
-      const known = done[folder.id];
-      const keys = r.messages.map(doneKey);
-      if (!known) {
-        done[folder.id] = keys;
+      const messages = lists[i] ?? [];
+      const validity = r.uidValidity ?? null;
+      // Liste « examinés » d'une version précédente : convertie une fois en repère.
+      const old = legacy[folder.id];
+      if (old) {
+        marks[folder.id] = markFromLegacy(messages, old, validity);
+        delete legacy[folder.id];
+        dirty = true;
+      }
+      const mark = marks[folder.id];
+      // Première rencontre, ou boîte renumérotée par le serveur : les messages
+      // présents sont seulement notés (les règles ne s'appliquent qu'aux arrivées).
+      if (!mark || mark.validity !== validity) {
+        marks[folder.id] = { validity, maxUid: maxUid(messages, 0), retry: [] };
+        dirty = true;
         continue;
       }
-      const knownSet = new Set(known);
+      if (r.messages === null && !old && mark.retry.length === 0) continue;
+      const retry = new Set(mark.retry);
+      const isNew = (m: MessageSummary) => !!m.uid && (m.uid > mark.maxUid || retry.has(m.uid));
       const isMoved = (m: MessageSummary) => moved[messageKey(m)] !== undefined;
+      const arrived = messages.filter(isNew);
       // Message reclassé ici par une règle (depuis une autre boîte) : pas
       // reclassé une seconde fois, mais annoncé s'il arrive non lu (n° 50).
-      total.arrivals.push(...r.messages.filter((m, i) => !knownSet.has(keys[i]) && isMoved(m) && !m.flags.seen));
-      const fresh = r.messages.filter((m, i) => !knownSet.has(keys[i]) && !isMoved(m));
-      if (fresh.length === 0) {
-        // Rien à classer : la liste suit quand même la boîte, déplacés par une
-        // règle compris (ils ne redeviendront pas « nouveaux » dans 30 jours).
-        done[folder.id] = keys;
-        continue;
+      total.arrivals.push(...arrived.filter((m) => isMoved(m) && !m.flags.seen));
+      const fresh = arrived.filter((m) => !isMoved(m));
+      let skipped = new Set<number>();
+      if (fresh.length > 0) {
+        const report = await applyRules(fresh, folder, rules);
+        total.matched += report.matched;
+        total.moved += report.moved;
+        total.failed.push(...report.failed);
+        skipped = new Set(report.skipped ?? []);
+        // Un message à retenter sera annoncé au passage où les règles l'auront vu.
+        const handled = new Set(report.handled ?? []);
+        total.arrivals.push(...fresh.filter((m) => !m.flags.seen && !handled.has(m.id) && !skipped.has(m.id)));
       }
-      const report = await applyRules(fresh, folder, rules);
-      total.matched += report.matched;
-      total.moved += report.moved;
-      total.failed.push(...report.failed);
-      // Messages présents dans la boîte, tous examinés sauf ceux à retenter : la
-      // liste suit la boîte (aucune limite arbitraire qui ferait revenir des
-      // messages déjà traités, relecture F3).
-      const skipped = new Set(report.skipped ?? []);
-      // Un message à retenter sera annoncé au passage où les règles l'auront vu.
-      const handled = new Set(report.handled ?? []);
-      total.arrivals.push(...fresh.filter((m) => !m.flags.seen && !handled.has(m.id) && !skipped.has(m.id)));
-      done[folder.id] = r.messages.filter((m) => !skipped.has(m.id)).map(doneKey);
+      // Repère avancé jusqu'au plus grand UID vu ; seuls les messages à retenter
+      // restent en dessous (aucune liste qui grossit avec la boîte, relecture F3).
+      const next: InboxMark = {
+        validity,
+        maxUid: maxUid(messages, mark.maxUid),
+        retry: fresh.filter((m) => skipped.has(m.id) && m.uid).map((m) => m.uid ?? 0),
+      };
+      if (next.maxUid !== mark.maxUid || next.retry.join() !== mark.retry.join()) {
+        marks[folder.id] = next;
+        dirty = true;
+      }
+      // Messages à retenter : la boîte sera relue au passage suivant, même inchangée.
+      if (next.retry.length > 0) inboxLists.delete(folder.id);
     }
-    saveDone(done);
+    if (dirty) {
+      saveMarks(marks);
+      saveDone(legacy);
+    }
     return total;
   } catch {
+    // Passage interrompu : tout sera relu au suivant.
+    inboxLists.clear();
     return null;
   } finally {
     running = false;

@@ -330,4 +330,11 @@ pub(super) static ES: &[(&str, &str)] = &[
     ("Le certificat de Proton Mail Bridge a changé (empreinte {found}, {pin} attendue). Si vous avez réinstallé ou réinitialisé Bridge, modifiez le compte et acceptez le nouveau certificat ; sinon, ne vous connectez pas.", "El certificado de Proton Mail Bridge ha cambiado (huella {found}, se esperaba {pin}). Si ha reinstalado o restablecido Bridge, modifique la cuenta y acepte el nuevo certificado; si no, no se conecte."),
     ("Proton Mail Bridge ne répond pas sur cet ordinateur (port {port}). Lancez Bridge et connectez-y votre compte Proton, puis réessayez.", "Proton Mail Bridge no responde en este equipo (puerto {port}). Inicie Bridge, conecte en él su cuenta de Proton y vuelva a intentarlo."),
     ("Seuls les éléments supprimés peuvent être restaurés.", "Solo se pueden restaurar los elementos eliminados."),
+    ("GitHub a répondu {status}", "GitHub respondió {status}"),
+    ("Réglage refusé.", "Ajuste rechazado."),
+    ("connexion fermée sans réponse", "conexión cerrada sin respuesta"),
+    ("Corps trop volumineux pour cet affichage : {limit} Mo au plus.", "Cuerpo demasiado grande para esta vista: {limit} MB como máximo."),
+    ("dossier d'import absent", "falta la carpeta de importación"),
+    ("fichier d'import attendu en octets", "se esperaba el archivo de importación en bytes"),
+    ("bloc HTTP mal terminé", "bloque HTTP mal terminado"),
 ];

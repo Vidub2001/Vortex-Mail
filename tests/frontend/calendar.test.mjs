@@ -102,6 +102,32 @@ test("F13 : série quotidienne très ancienne", () => {
   assert.equal(occurrences([counted], day(2026, 11, 9), day(2026, 11, 16)).length, 0);
 });
 
+test("P9 : séries anciennes de toutes fréquences, développées près de la période", () => {
+  const at = (start, rrule) => event({ start: { value: start, tzid: "Europe/Paris" }, end: { value: start.slice(0, 9) + "235900", tzid: "Europe/Paris" }, rrule });
+  // Lundi 5 janvier 2015, chaque semaine : un seul lundi entre le 9 et le 15 novembre 2026.
+  const weekly = at("20150105T090000", "FREQ=WEEKLY");
+  const week = occurrences([weekly], day(2026, 11, 9), day(2026, 11, 16));
+  assert.equal(week.length, 1);
+  assert.equal(new Date(week[0].start).getDay(), 1);
+  assert.equal(occurrences([at("20150105T090000", "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE")], day(2026, 11, 2), day(2026, 11, 16)).length, 2);
+  assert.equal(occurrences([at("20000115T090000", "FREQ=MONTHLY")], day(2026, 11, 1), day(2026, 12, 1)).length, 1);
+  assert.equal(occurrences([at("19800229T090000", "FREQ=YEARLY;BYMONTH=11;BYMONTHDAY=10")], day(2026, 11, 1), day(2026, 12, 1)).length, 1);
+  // Même résultat qu'en développant la série depuis son début.
+  const all = occurrences([weekly], day(2015, 1, 1), day(2026, 11, 16)).filter((o) => o.start >= day(2026, 11, 9));
+  assert.deepEqual(all.map((o) => o.start), week.map((o) => o.start));
+});
+
+test("P9 : série quotidienne à COUNT commencée il y a plus de 5 000 jours", () => {
+  // 1er janvier 2010 + 6 000 jours : jusqu'en juin 2026 ; + 5 000 jours : septembre 2023.
+  const daily = (count) => event({ start: { value: "20100101T080000", tzid: "Europe/Paris" }, end: { value: "20100101T081500", tzid: "Europe/Paris" }, rrule: `FREQ=DAILY;COUNT=${count}` });
+  assert.equal(occurrences([daily(6000)], day(2026, 3, 2), day(2026, 3, 9)).length, 7);
+  assert.equal(occurrences([daily(5000)], day(2026, 3, 2), day(2026, 3, 9)).length, 0);
+  // Dernière occurrence : le 6 000e jour, 5 juin 2026 (1er janvier 2010 + 5 999 jours).
+  const last = occurrences([daily(6000)], day(2026, 5, 25), day(2026, 6, 30));
+  assert.equal(new Date(last.at(-1).start).getDate(), 5);
+  assert.equal(new Date(last.at(-1).start).getMonth(), 5);
+});
+
 test("Z11 : règle BYDAY démesurée bornée, sans figer l'affichage", () => {
   const huge = "MO,".repeat(300_000) + "TU,XX,99MO";
   const weekly = event({ start: { value: "20261102T090000", tzid: "Europe/Paris" }, end: { value: "20261102T100000", tzid: "Europe/Paris" }, rrule: `FREQ=WEEKLY;BYDAY=${huge}` });

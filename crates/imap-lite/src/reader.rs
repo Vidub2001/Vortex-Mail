@@ -5,6 +5,9 @@ use std::io::{Read, Write};
 use crate::limits::{exceeded, Limit, MAX_COMMAND_LITERALS, MAX_COMMAND_TEXT, MAX_LINE, MAX_LITERAL, MAX_LITERALS, MAX_RESPONSES};
 use crate::{Error, Result};
 
+/// Capacité du tampon de lecture gardée d'une commande à l'autre (audit P10).
+const BUF_KEPT: usize = 64 * 1024;
+
 /// Flux avec tampon de lecture, qui garde l'accès en écriture.
 pub(crate) struct Connection<S> {
     stream: S,
@@ -21,11 +24,18 @@ impl<S: Read + Write> Connection<S> {
         Self { stream, buf: Vec::with_capacity(16 * 1024), start: 0, responses: 0, text: 0, literal_bytes: 0 }
     }
 
-    /// Une nouvelle commande commence : ses plafonds repartent de zéro.
+    /// Une nouvelle commande commence : ses plafonds repartent de zéro, et le
+    /// tampon grossi par une très longue ligne reprend sa taille ordinaire
+    /// (audit P10 : sinon chaque connexion du compte la garderait).
     pub(crate) fn begin_command(&mut self) {
         self.responses = 0;
         self.text = 0;
         self.literal_bytes = 0;
+        if self.buf.capacity() > BUF_KEPT {
+            self.buf.drain(..self.start);
+            self.start = 0;
+            self.buf.shrink_to(BUF_KEPT);
+        }
     }
 
     pub(crate) fn into_inner(self) -> S {
@@ -84,17 +94,28 @@ impl<S: Read + Write> Connection<S> {
         }
     }
 
-    fn read_exact(&mut self, n: usize) -> Result<Vec<u8>> {
+    /// Ajoute à `out` les `n` octets d'un littéral. Ce qui n'est pas déjà dans
+    /// le tampon est lu directement dans `out` (audit P10) : le tampon garde sa
+    /// taille ordinaire, et le littéral n'est pas recopié une fois de plus.
+    fn read_literal_into(&mut self, out: &mut Vec<u8>, n: usize) -> Result<()> {
         // Refusé avant de lire quoi que ce soit : la taille vient du serveur.
         if n > MAX_LITERAL {
             return Err(exceeded(Limit::Literal));
         }
-        while self.buf.len() - self.start < n {
-            self.fill()?;
+        let buffered = (self.buf.len() - self.start).min(n);
+        out.reserve(n);
+        out.extend_from_slice(&self.buf[self.start..self.start + buffered]);
+        self.start += buffered;
+        let mut at = out.len();
+        out.resize(at + (n - buffered), 0);
+        while at < out.len() {
+            let read = self.stream.read(&mut out[at..])?;
+            if read == 0 {
+                return Err(Error::Io(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "connexion fermée par le serveur")));
+            }
+            at += read;
         }
-        let out = self.buf[self.start..self.start + n].to_vec();
-        self.start += n;
-        Ok(out)
+        Ok(())
     }
 
     /// Une réponse complète, littéraux inclus (sous la forme `{n}\r\n<octets>`).
@@ -123,8 +144,7 @@ impl<S: Read + Write> Connection<S> {
                         return Err(exceeded(Limit::CommandLiterals));
                     }
                     out.extend_from_slice(b"\r\n");
-                    let literal = self.read_exact(n)?;
-                    out.extend_from_slice(&literal);
+                    self.read_literal_into(&mut out, n)?;
                 }
                 None => return Ok(out),
             }
@@ -264,5 +284,36 @@ mod tests {
         assert_eq!(literal_len(b"A APPEND x {5+}"), Some(5));
         assert_eq!(literal_len(b"* OK {weird}"), None);
         assert_eq!(literal_len(b"* OK done"), None);
+    }
+
+    #[test]
+    fn p10_big_literal_does_not_grow_the_buffer() {
+        // Message de 4 Mo : lu directement dans la réponse, le tampon reste petit.
+        let size = 4 << 20;
+        let mut data = format!("* 1 FETCH (BODY[] {{{size}}}\r\n").into_bytes();
+        data.resize(data.len() + size, b'x');
+        data.extend_from_slice(b" UID 7)\r\nA1 OK fini\r\n");
+        let mut c = fast(data);
+        let response = c.read_response().unwrap();
+        assert_eq!(response.len(), "* 1 FETCH (BODY[] {4194304}\r\n".len() + size + " UID 7)".len());
+        assert!(response.ends_with(b"xx UID 7)"));
+        assert!(c.buf.capacity() <= BUF_KEPT, "tampon de {} octets", c.buf.capacity());
+        assert_eq!(c.read_response().unwrap(), b"A1 OK fini");
+    }
+
+    #[test]
+    fn p10_buffer_shrinks_after_a_long_line() {
+        let mut data = b"* SEARCH".to_vec();
+        while data.len() < 2 << 20 {
+            data.extend_from_slice(b" 1234567");
+        }
+        data.extend_from_slice(b"\r\nA1 OK fini\r\n");
+        let mut c = fast(data);
+        c.read_response().unwrap();
+        assert!(c.buf.capacity() > BUF_KEPT, "la longue ligne a grossi le tampon");
+        c.begin_command();
+        assert!(c.buf.capacity() <= BUF_KEPT, "tampon de {} octets", c.buf.capacity());
+        // Ce qui restait à lire n'est pas perdu.
+        assert_eq!(c.read_response().unwrap(), b"A1 OK fini");
     }
 }

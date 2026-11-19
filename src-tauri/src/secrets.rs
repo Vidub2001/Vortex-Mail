@@ -239,6 +239,9 @@ struct VaultState {
     file: std::path::PathBuf,
     password: String,
     entries: std::collections::BTreeMap<String, String>,
+    /// Clés tirées du mot de passe à la première écriture, gardées tant que
+    /// le coffre est ouvert (audit P7 : 600 000 tours de PBKDF2 par secret).
+    key: std::cell::OnceCell<crate::crypto::SealKey>,
 }
 
 static VAULT: std::sync::Mutex<Option<VaultState>> = std::sync::Mutex::new(None);
@@ -274,7 +277,13 @@ fn write_synced(path: &Path, data: &[u8]) -> std::io::Result<()> {
 fn save_vault(state: &VaultState) -> Result<(), String> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let json = serde_json::to_string(&state.entries).map_err(|e| e.to_string())?;
-    let sealed = crate::crypto::seal(&state.password, json.as_bytes())?;
+    let key = if let Some(key) = state.key.get() {
+        key
+    } else {
+        let derived = crate::crypto::SealKey::derive(&state.password)?;
+        state.key.get_or_init(|| derived)
+    };
+    let sealed = key.seal(json.as_bytes())?;
     if let Some(dir) = state.file.parent() {
         std::fs::create_dir_all(dir).map_err(|e| tr!("création de {path} impossible : {e}", path = dir.display(), e = e))?;
     }
@@ -404,7 +413,7 @@ pub(crate) fn unlock_vault(password: &str) -> Result<bool, String> {
             .ok()
             .and_then(|text| crate::crypto::sealed_iterations(&text))
             .is_some_and(|n| n < crate::crypto::ITERATIONS);
-    let state = VaultState { file, password: password.to_string(), entries };
+    let state = VaultState { file, password: password.to_string(), entries, key: std::cell::OnceCell::new() };
     if !existing {
         save_vault(&state)?;
     } else if outdated {
@@ -424,8 +433,11 @@ pub(crate) fn change_vault_password(old: &str, new: &str) -> Result<(), String> 
         return Err(tr!("Mot de passe maître actuel incorrect.").into());
     }
     let previous = std::mem::replace(&mut state.password, new.to_string());
+    // Nouveau mot de passe : nouvelles clés (et nouveau sel).
+    let previous_key = std::mem::take(&mut state.key);
     if let Err(e) = save_vault(state) {
         state.password = previous;
+        state.key = previous_key;
         return Err(e);
     }
     // La copie de secours portait l'ancien mot de passe : elle est remplacée

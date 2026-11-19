@@ -8,6 +8,7 @@ import { ArrowLeft20Regular, CheckmarkCircle16Filled, DismissCircle16Filled } fr
 import { useState } from "react";
 import { api } from "../api";
 import { t } from "../i18n";
+import { isPlausibleEmail } from "../text";
 import { BridgeCertificate } from "./BridgeCertificate";
 import type { AccountConfig, AuthMethod, Detected, DetectedServer, Security, ServerConfig, TestReport } from "../types";
 
@@ -74,6 +75,7 @@ export function configFrom(found: Detected, email: string, displayName: string, 
     oauthClientId: "",
     davUrl: "",
     cardUrl: "",
+    offlineBodies: true,
   };
 }
 
@@ -98,7 +100,7 @@ export function AccountWizard({ color, onManual, onCancel, onSaved, notify }: Pr
   const [trusted, setTrusted] = useState(false);
 
   const address = email.trim();
-  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address);
+  const valid = isPlausibleEmail(address);
   const found = step.kind === "found" ? step.found : null;
   const pin = trusted ? cert : "";
 

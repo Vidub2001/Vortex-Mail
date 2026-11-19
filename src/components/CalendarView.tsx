@@ -1,7 +1,7 @@
 // Agenda : vues semaine, mois et année ; à gauche, les agendas
 // affichés (cases à cocher) et leur couleur.
 import { formatHour, formatTime, useGeneral } from "../general";
-import { Button, Checkbox, Popover, PopoverSurface, PopoverTrigger, Spinner } from "@fluentui/react-components";
+import { Button, Checkbox, Popover, PopoverSurface, PopoverTrigger } from "@fluentui/react-components";
 import { Add20Regular, ArrowClockwise20Regular, ChevronLeft20Regular, ChevronRight20Regular } from "@fluentui/react-icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
@@ -14,6 +14,7 @@ import { allDeclined } from "../invites";
 import { MiniMonths } from "./MiniMonths";
 import { colorName } from "../colors";
 import { locale, t } from "../i18n";
+import { VortexSpinner } from "./VortexSpinner";
 
 interface Props {
   accounts: Account[];
@@ -405,7 +406,7 @@ export function CalendarView({ accounts, notify, version, syncing, onSync }: Pro
           </div>
         </div>
         <div className="cal-scroll" ref={scroller}>
-          {events === null && <Spinner className="list-loading" size="small" />}
+          {events === null && <VortexSpinner className="list-loading" size={22} aria-label={t("Chargement")} />}
           <div className="cal-body" style={{ height: 24 * HOUR_PX }}>
             <div className="cal-gutter cal-hours">
               {Array.from({ length: 24 }, (_, h) => (
@@ -672,7 +673,7 @@ export function CalendarView({ accounts, notify, version, syncing, onSync }: Pro
             ))}
           </div>
           <PimTransfer kind="calendar" collections={calendars} accounts={accounts} notify={notify} onImported={() => void reload()} />
-          <Button appearance="subtle" icon={syncing ? <Spinner size="tiny" /> : <ArrowClockwise20Regular />} disabled={syncing} onClick={onSync}>
+          <Button appearance="subtle" icon={syncing ? <VortexSpinner size={16} /> : <ArrowClockwise20Regular />} disabled={syncing} onClick={onSync}>
             {t("Synchroniser")}
           </Button>
         </div>

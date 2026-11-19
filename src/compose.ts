@@ -2,6 +2,7 @@
 import { longDate } from "./format";
 import { t } from "./i18n";
 import { signatureBlock } from "./settings";
+import { angleAddress } from "./text";
 import type { Account, AttachmentInput, Draft, DraftContent, Message } from "./types";
 
 /** Pièce jointe d'un brouillon. */
@@ -114,8 +115,7 @@ export function splitAddressList(input: string): string[] {
 export function parseAddresses(input: string): string[] {
   const out: string[] = [];
   for (const part of splitAddressList(input)) {
-    const angle = part.match(/<([^>]+)>\s*$/);
-    const addr = (angle ? angle[1] : part).trim().replace(/^"|"$/g, "");
+    const addr = (angleAddress(part) ?? part).trim().replace(/^"|"$/g, "");
     if (addr && !out.some((x) => x.toLowerCase() === addr.toLowerCase())) out.push(addr);
   }
   return out;
