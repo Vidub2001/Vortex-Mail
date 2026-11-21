@@ -125,17 +125,71 @@ export function missed(events: CalEvent[], fired: Record<string, number>, since:
   return out.sort((a, b) => a.o.start - b.o.start);
 }
 
+/** Notification à montrer : sur le bureau, et dans l'application (lignes jointes par « · »). */
+export interface ReminderNotice {
+  title: string;
+  body: string;
+}
+
+/**
+ * Rappels d'une session : ceux déjà montrés (gardés d'un démarrage à
+ * l'autre) et le dernier signe de vie de la session précédente, lu une
+ * seule fois pour résumer les rappels manqués (lot B2).
+ */
+export class ReminderState {
+  fired: Record<string, number> = loadFired();
+  lastAlive: number | null = loadAlive();
+
+  /**
+   * Un passage (toutes les 30 s) : note que l'application tourne, résume
+   * une fois les rappels manqués, puis rend les rappels dus, chacun une
+   * seule fois.
+   */
+  pass(events: CalEvent[], now: number): ReminderNotice[] {
+    saveAlive(now);
+    const notices = this.missedNotice(events, now);
+    const list = due(events, this.fired, now);
+    for (const { o, key } of list) {
+      this.fired[key] = now;
+      const title = o.event.summary || t("(sans titre)");
+      const body = [whenText(o, now), o.event.location].filter(Boolean).join("\n");
+      notices.push({ title: t("Rappel : {title}", { title }), body });
+    }
+    if (list.length > 0) this.fired = saveFired(this.fired);
+    return notices;
+  }
+
+  /** Une seule fois, au premier passage avec les agendas chargés. */
+  private missedNotice(events: CalEvent[], now: number): ReminderNotice[] {
+    const since = this.lastAlive;
+    if (since === null || events.length === 0) return [];
+    this.lastAlive = null;
+    const list = missed(events, this.fired, since, now);
+    if (list.length === 0) return [];
+    for (const { key } of list) this.fired[key] = now;
+    this.fired = saveFired(this.fired);
+    const line = (o: Occurrence) => `${o.event.summary || t("(sans titre)")} · ${whenText(o, now)}`;
+    const title =
+      list.length === 1
+        ? t("Rappel manqué : {title}", { title: list[0].o.event.summary || t("(sans titre)") })
+        : t("{n} rappels manqués pendant la fermeture", { n: list.length });
+    const shown = list.slice(0, 5).map(({ o }) => line(o));
+    if (list.length > 5) shown.push(t("et {n} autres", { n: list.length - 5 }));
+    const body = list.length === 1 ? whenText(list[0].o, now) : shown.join("\n");
+    return [{ title, body }];
+  }
+}
+
 /**
  * Surveille les rappels. `version` change après une synchronisation des agendas ;
  * `notify` affiche aussi le rappel dans l'application.
  */
 export function useReminders(version: number, notify: (title: string, body?: string, intent?: "success" | "error" | "info") => void) {
   const events = useRef<CalEvent[]>([]);
-  const fired = useRef<Record<string, number>>(loadFired());
+  const state = useRef<ReminderState | null>(null);
+  state.current ??= new ReminderState();
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
-  /** Dernier signe de vie de la session précédente, lu une seule fois. */
-  const lastAlive = useRef<number | null>(loadAlive());
 
   useEffect(() => {
     let alive = true;
@@ -157,44 +211,12 @@ export function useReminders(version: number, notify: (title: string, body?: str
   }, [version]);
 
   function check() {
-    const now = Date.now();
-    saveAlive(now);
-    reportMissed(now);
-    const list = due(events.current, fired.current, now);
-    if (list.length === 0) return;
-    for (const { o, key } of list) {
-      fired.current[key] = now;
-      const title = o.event.summary || t("(sans titre)");
-      const body = [whenText(o, now), o.event.location].filter(Boolean).join("\n");
-      api.showReminder(t("Rappel : {title}", { title }), body).catch(() => {
+    for (const { title, body } of state.current?.pass(events.current, Date.now()) ?? []) {
+      api.showReminder(title, body).catch(() => {
         // notification du bureau indisponible : le message dans l'application suffit
       });
-      notifyRef.current(t("Rappel : {title}", { title }), body.replace("\n", " · "), "info");
+      notifyRef.current(title, body.replaceAll("\n", " · "), "info");
     }
-    fired.current = saveFired(fired.current);
-  }
-
-  /** Une seule fois, au premier passage avec les agendas chargés. */
-  function reportMissed(now: number) {
-    const since = lastAlive.current;
-    if (since === null || events.current.length === 0) return;
-    lastAlive.current = null;
-    const list = missed(events.current, fired.current, since, now);
-    if (list.length === 0) return;
-    for (const { key } of list) fired.current[key] = now;
-    fired.current = saveFired(fired.current);
-    const line = (o: Occurrence) => `${o.event.summary || t("(sans titre)")} · ${whenText(o, now)}`;
-    const title =
-      list.length === 1
-        ? t("Rappel manqué : {title}", { title: list[0].o.event.summary || t("(sans titre)") })
-        : t("{n} rappels manqués pendant la fermeture", { n: list.length });
-    const shown = list.slice(0, 5).map(({ o }) => line(o));
-    if (list.length > 5) shown.push(t("et {n} autres", { n: list.length - 5 }));
-    const body = list.length === 1 ? whenText(list[0].o, now) : shown.join("\n");
-    api.showReminder(title, body).catch(() => {
-      // notification du bureau indisponible : le message dans l'application suffit
-    });
-    notifyRef.current(title, body.replaceAll("\n", " · "), "info");
   }
 
   useEffect(() => {

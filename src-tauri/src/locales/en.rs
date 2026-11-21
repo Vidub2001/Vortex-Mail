@@ -319,6 +319,7 @@ pub(super) static EN: &[(&str, &str)] = &[
     ("Erreur interne pendant l'envoi : vérifiez « Éléments envoyés » avant de renvoyer.", "Internal error while sending: check “Sent Items” before sending again."),
     ("Certificat révoqué par son autorité : {addresses}. Demandez-leur un nouveau message signé avec leur nouveau certificat.", "Certificate revoked by its authority: {addresses}. Ask them for a new signed message with their new certificate."),
     ("liste illisible", "unreadable list"),
+    ("{n} nouveaux messages", "{n} new messages"),
     ("Message non envoyé", "Message not sent"),
     // Proton Mail Bridge, certificat épinglé (lot I3).
     ("{label} : un certificat épinglé n'est admis que pour Proton Mail Bridge, sur cet ordinateur (127.0.0.1).", "{label}: a pinned certificate is only allowed for Proton Mail Bridge, on this computer (127.0.0.1)."),

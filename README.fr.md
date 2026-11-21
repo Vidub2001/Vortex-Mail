@@ -52,7 +52,7 @@ Les versions sont construites à partir de ce dépôt par GitHub Actions. Chacun
 
 Les fichiers Windows ne sont pas encore signés : Windows peut afficher un avertissement à la première installation.
 
-> **État :** version 0.3.5, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
+> **État :** version 0.3.6, utilisée tous les jours par son auteur. Les retours et signalements sont les bienvenus.
 
 ## Fonctionnalités
 
@@ -80,7 +80,9 @@ Les fichiers Windows ne sont pas encore signés : Windows peut afficher un avert
   transferts, pièces jointes par glisser-déposer, brouillons enregistrés automatiquement,
   suggestions de destinataires, **avertissement de pièce jointe oubliée**.
 - Déplacement et suppression entre comptes, avec journal : un déplacement interrompu (coupure
-  réseau, fermeture) est repris au démarrage suivant, sans doublon ni perte.
+  réseau, fermeture) est repris au démarrage suivant, sans doublon ni perte. Clic droit ›
+  « Déplacer » : dossiers récents, recherche parmi les dossiers de tous les comptes, ou nouveau
+  dossier dans le compte choisi.
 - Import et export des messages : un message en `.eml`, un dossier en `.mbox` (Téléchargements) ; import de `.eml` et `.mbox` (Thunderbird compris) dans le dossier choisi.
 - Import et export des agendas (`.ics`) et des carnets d'adresses (`.vcf`), sans doublon à un second import.
 - Recherche dans tous les dossiers de tous les comptes, contenu compris, avec critères : `de:`, `à:`, `objet:`, `avant:16/11/2026`, `après:`, `est:nonlu`, `est:suivi`, `avec:pj`, `"phrase exacte"`, `-mot` pour exclure.

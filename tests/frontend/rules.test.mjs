@@ -169,3 +169,27 @@ test("P8 : conversion de l'ancienne liste « examinés »", async () => {
   const mark = markFromLegacy(messages, [m(1), m(2), m(4)].map(doneKey), 9);
   assert.deepEqual(mark, { validity: 9, maxUid: 4, retry: [3] });
 });
+
+// Lots M1 et P : une notification par compte ; le backend additionne les messages.
+const arrival = (id, accountId, fromName, subject) => ({ id, accountId, fromName, fromEmail: "", subject });
+
+test("P : une annonce par compte, avec le nombre et le premier message", async () => {
+  const { announceArrivals } = await import("../../src/rules.ts");
+  const { t } = await import("../../src/i18n.ts");
+  const accounts = [{ id: "perso", name: "Perso" }, { id: "pro", name: "Pro" }];
+  const sent = [];
+  const original = api.notifyNewMail;
+  api.notifyNewMail = (...args) => {
+    sent.push(args);
+    return Promise.resolve();
+  };
+  try {
+    announceArrivals([arrival("1", "perso", "Alice", "Un"), arrival("2", "pro", "Bob", " "), arrival("3", "perso", "Carole", "Trois")], accounts);
+    assert.deepEqual(sent, [
+      ["perso", 2, "Alice", "Un\nPerso", "Perso"],
+      ["pro", 1, "Bob", `${t("(sans objet)")}\nPro`, "Pro"],
+    ]);
+  } finally {
+    api.notifyNewMail = original;
+  }
+});

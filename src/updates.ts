@@ -42,6 +42,25 @@ function write(key: string, value: string) {
 }
 
 /**
+ * Un passage : interroge GitHub (`check`) si une journée s'est écoulée depuis
+ * la dernière réponse, et rend la version à signaler (null : rien). Une
+ * erreur (hors ligne, GitHub indisponible) est transmise sans noter le
+ * passage : nouvel essai à l'heure suivante.
+ */
+export async function checkOnce(now: number, check: () => Promise<NewVersion | null>): Promise<NewVersion | null> {
+  const last = Number(read(LAST_CHECK));
+  if (!checkDue(now, Number.isFinite(last) && last > 0 ? last : null)) return null;
+  const result = await check();
+  write(LAST_CHECK, String(now));
+  return worthShowing(result, read(SKIPPED)) ? result : null;
+}
+
+/** « Ne plus la signaler » : cette version ne revient pas, la suivante si. */
+export function skipVersion(version: string) {
+  write(SKIPPED, version);
+}
+
+/**
  * Version plus récente à proposer (null : rien), `later` pour fermer, et
  * `skip` pour ne plus signaler celle-ci.
  */
@@ -55,13 +74,9 @@ export function useUpdateCheck(): { found: NewVersion | null; later: () => void;
     }
     let alive = true;
     const run = async () => {
-      const now = Date.now();
-      const last = Number(read(LAST_CHECK));
-      if (!checkDue(now, Number.isFinite(last) && last > 0 ? last : null)) return;
       try {
-        const result = await api.checkUpdate();
-        write(LAST_CHECK, String(now));
-        if (alive && worthShowing(result, read(SKIPPED))) setFound(result);
+        const result = await checkOnce(Date.now(), api.checkUpdate);
+        if (alive && result) setFound(result);
       } catch {
         // hors ligne, ou GitHub indisponible : nouvel essai à l'heure suivante
       }
@@ -78,7 +93,7 @@ export function useUpdateCheck(): { found: NewVersion | null; later: () => void;
     found,
     later: () => setFound(null),
     skip: () => {
-      if (found) write(SKIPPED, found.version);
+      if (found) skipVersion(found.version);
       setFound(null);
     },
   };

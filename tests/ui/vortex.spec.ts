@@ -192,6 +192,48 @@ test("E6 : déplacer un message vers un dossier d'un autre nom", async ({ page }
   await expect(list.getByText("Pièces manquantes pour la clôture")).toHaveCount(0);
 });
 
+test("Q : clic droit › Déplacer, recherche parmi les dossiers puis dossier récent", async ({ page }) => {
+  const list = page.getByRole("listbox", { name: "Messages" });
+  await list.getByText("Pièces manquantes pour la clôture").click({ button: "right" });
+  // Survol de « Déplacer » : le sous-menu s'ouvre à droite, sans clic ;
+  // aucun dossier récent au départ.
+  await page.getByRole("menuitem", { name: "Déplacer", exact: true }).hover();
+  const folders = page.getByRole("listbox", { name: "Dossiers" });
+  await expect(folders.getByText("Tapez le nom d'un dossier pour le trouver.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Créer un dossier…" })).toBeVisible();
+  // Survol d'une autre entrée : le sous-menu disparaît, puis revient.
+  await page.getByRole("menuitem", { name: "Enregistrer (.eml)" }).hover();
+  await expect(folders).toHaveCount(0);
+  await page.getByRole("menuitem", { name: "Déplacer", exact: true }).hover();
+  await page.getByRole("textbox", { name: "Rechercher un dossier" }).fill("LIENTS");
+  // « Client A » ne contient pas « lients » : un seul dossier reste.
+  await expect(folders.getByRole("option")).toHaveCount(1);
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("1 élément déplacé vers « Clients » (OVH pro)", { exact: true })).toBeVisible();
+  await expect(list.getByText("Pièces manquantes pour la clôture")).toHaveCount(0);
+  // Au clic droit suivant, « Clients » est dans les récents.
+  await list.getByText("Repas de dimanche").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Déplacer", exact: true }).hover();
+  await expect(folders.getByRole("option", { name: /^Clients/ })).toBeVisible();
+});
+
+test("Q : Créer un dossier depuis Déplacer, nom repris de la recherche et compte au choix", async ({ page }) => {
+  const list = page.getByRole("listbox", { name: "Messages" });
+  await list.getByText("Repas de dimanche").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Déplacer", exact: true }).hover();
+  await page.getByRole("textbox", { name: "Rechercher un dossier" }).fill("Projet X");
+  await page.getByRole("button", { name: "Créer un dossier…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Nouveau dossier" });
+  await expect(dialog.getByRole("textbox", { name: "Nom du dossier" })).toHaveValue("Projet X");
+  // Compte du message par défaut, un autre au choix.
+  const account = dialog.getByRole("combobox", { name: "Dans le compte" });
+  await expect(account).toHaveValue("perso");
+  await account.selectOption({ label: "OVH pro" });
+  await expect(account).toHaveValue("pro");
+  await dialog.getByRole("button", { name: "Annuler" }).click();
+  await expect(dialog).toHaveCount(0);
+});
+
 test("E6 : paramètres et licences chargés à la demande", async ({ page }) => {
   await page.getByRole("button", { name: "Comptes et paramètres" }).click();
   const settings = page.getByRole("dialog", { name: "Paramètres" });

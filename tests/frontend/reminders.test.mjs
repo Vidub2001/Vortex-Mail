@@ -1,8 +1,9 @@
 // Tests des rappels manqués (lot B2) : `npm test`, lancé par `make audit`.
 // Fuseau fixé à Europe/Paris par setup.mjs.
 import { test } from "node:test";
+import { t } from "../../src/i18n.ts";
 import assert from "node:assert/strict";
-import { due, missed, saveFired } from "../../src/reminders.ts";
+import { due, missed, ReminderState, saveFired } from "../../src/reminders.ts";
 
 const event = (fields) => ({
   id: "cal|1",
@@ -73,4 +74,66 @@ test("n° 25 : rappel deux semaines avant, à l'heure et une seule fois", () => 
   const now = Date.now();
   const kept = saveFired({ [`loin|${now + 6 * 86_400_000}|${twoWeeks}`]: now - 9 * 86_400_000, [`vieux|${now - 9 * 86_400_000}|15`]: now - 9 * 86_400_000 });
   assert.deepEqual(Object.keys(kept).map((k) => k.split("|")[0]), ["loin"]);
+});
+
+// Passages de la surveillance (`ReminderState`, extrait de `useReminders`).
+// Dates relatives à maintenant : `saveFired` oublie ce qui a plus de 8 jours.
+const FIRED_KEY = "vortex.reminders.fired";
+const ALIVE_KEY = "vortex.reminders.alive";
+const MIN = 60_000;
+const ical = (ms) => {
+  const d = new Date(ms);
+  const two = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}T${two(d.getHours())}${two(d.getMinutes())}00`;
+};
+const startingAt = (uid, ms, extra = {}) =>
+  event({
+    uid,
+    id: `cal|${uid}`,
+    summary: uid,
+    start: { value: ical(ms), tzid: "Europe/Paris" },
+    end: { value: ical(ms + 60 * MIN), tzid: "Europe/Paris" },
+    ...extra,
+  });
+const freshStorage = (alive = null) => {
+  localStorage.removeItem(FIRED_KEY);
+  if (alive === null) localStorage.removeItem(ALIVE_KEY);
+  else localStorage.setItem(ALIVE_KEY, String(alive));
+};
+const NOW = Math.floor(Date.now() / MIN) * MIN;
+
+test("rappel dû montré une seule fois, même après un redémarrage", () => {
+  freshStorage();
+  const events = [startingAt("point", NOW + 10 * MIN, { location: "Salle 2" })];
+  const state = new ReminderState();
+  const notices = state.pass(events, NOW);
+  assert.equal(notices.length, 1, "un rappel dû");
+  assert.equal(notices[0].title, t("Rappel : {title}", { title: "point" }));
+  assert.ok(notices[0].body.endsWith("\nSalle 2"), `lieu sur sa ligne : ${notices[0].body}`);
+  assert.deepEqual(state.pass(events, NOW + MIN), [], "pas deux fois dans la même session");
+  assert.deepEqual(new ReminderState().pass(events, NOW + 2 * MIN), [], "ni après un redémarrage");
+  assert.equal(localStorage.getItem(ALIVE_KEY), String(NOW + 2 * MIN), "signe de vie noté à chaque passage");
+});
+
+test("B2 : rappels manqués résumés une fois, au premier passage avec les agendas", () => {
+  freshStorage(NOW - 10 * 60 * MIN);
+  const events = [startingAt("matin", NOW - 5 * 60 * MIN)];
+  const state = new ReminderState();
+  assert.deepEqual(state.pass([], NOW), [], "agendas pas encore chargés : rien, et le résumé attend");
+  const notices = state.pass(events, NOW + MIN);
+  assert.equal(notices.length, 1, "un résumé");
+  assert.equal(notices[0].title, t("Rappel manqué : {title}", { title: "matin" }));
+  assert.deepEqual(state.pass(events, NOW + 2 * MIN), [], "une seule fois");
+});
+
+test("B2 : au-delà de cinq rappels manqués, les autres sont comptés", () => {
+  freshStorage(NOW - 20 * 60 * MIN);
+  const events = Array.from({ length: 7 }, (_, i) => startingAt(`r${i}`, NOW - (15 - i) * 60 * MIN));
+  const [notice, ...rest] = new ReminderState().pass(events, NOW);
+  assert.equal(rest.length, 0, "un seul résumé");
+  assert.equal(notice.title, t("{n} rappels manqués pendant la fermeture", { n: 7 }));
+  const lines = notice.body.split("\n");
+  assert.equal(lines.length, 6, "cinq rendez-vous, puis le reste");
+  assert.ok(lines[0].startsWith("r0 · "), `le plus ancien d'abord : ${lines[0]}`);
+  assert.equal(lines[5], t("et {n} autres", { n: 2 }));
 });

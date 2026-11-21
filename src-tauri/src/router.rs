@@ -927,11 +927,26 @@ fn parse_for_preview(sample: &[u8]) -> mimeparse::Parsed {
     parsed
 }
 
+/// En-têtes lus par `HEADER.FIELDS`, toujours suivis de leur ligne vide
+/// (lot O). Sans elle, le début du texte (délimiteur et en-têtes de la
+/// première partie) était lu comme la suite des en-têtes du message, et
+/// l'aperçu devenait « test --=_vortex_… Content-Type: text/html… ».
+fn header_block(headers: &[u8]) -> Vec<u8> {
+    let mut block = headers.to_vec();
+    if !(block.ends_with(b"\r\n\r\n") || block.ends_with(b"\n\n")) {
+        if !block.is_empty() && !block.ends_with(b"\n") {
+            block.extend_from_slice(b"\r\n");
+        }
+        block.extend_from_slice(b"\r\n");
+    }
+    block
+}
+
 /// En-tête à mettre en cache, depuis une réponse FETCH de la liste.
 fn header_from(item: &FetchItem) -> Option<Header> {
     let uid = item.uid()?;
     let headers = item.body("BODY[HEADER").unwrap_or_default();
-    let mut sample = headers.to_vec();
+    let mut sample = header_block(headers);
     if let Some(text) = item.body("BODY[TEXT]") {
         sample.extend_from_slice(preview_sample(text));
     }
@@ -3054,29 +3069,23 @@ fn search_account(account: &ImapAccount, keys: &[SearchKey], deadline: std::time
         if std::time::Instant::now() >= deadline {
             break;
         }
-        // Un seul essai : un dossier qui dépasse le délai de lecture n'est pas refait.
+        // Un seul essai : un dossier qui dépasse le délai de lecture n'est pas
+        // refait. Échéance posée sur la session (lot N2) : un dossier lent est
+        // arrêté au plus un délai de lecture court après elle, la connexion
+        // abandonnée (réponse à moitié lue) et la synchronisation libérée.
         let result = account.run_tries(Lane::Sync, 1, |s| {
-            match s.select(path) {
-                Ok(_) => {}
-                Err(e) if e.is_connection_lost() => return Err(e),
-                Err(_) => return Ok(None),
-            }
-            let uids = match s.uid_search_keys(keys) {
-                Ok(uids) => uids,
-                Err(e) if e.is_connection_lost() => return Err(e),
-                Err(_) => return Ok(None), // critère refusé par ce dossier
-            };
-            let recent: Vec<u32> = uids.iter().rev().take(SEARCH_PER_FOLDER).copied().collect();
-            if recent.is_empty() {
-                return Ok(None);
-            }
-            s.uid_fetch(&recent, SEARCH_QUERY).map(Some)
+            s.set_deadline(Some(deadline));
+            let found = search_folder(s, path, keys);
+            s.set_deadline(None);
+            found
         });
         match result {
             Ok(items) => {
                 let hit = items.map(|items| (account.config.id.clone(), path.clone(), *role, items));
                 let _ = tx.send(SearchStep::Searched(hit));
             }
+            // Arrêté par l'échéance : dossiers non parcourus, pas une erreur du compte.
+            Err(_) if std::time::Instant::now() >= deadline => break,
             Err(message) => {
                 let remaining = folders.len() - index;
                 let _ = tx.send(SearchStep::Failed { account_id: account.config.id.clone(), message, remaining });
@@ -3085,6 +3094,26 @@ fn search_account(account: &ImapAccount, keys: &[SearchKey], deadline: std::time
         }
     }
     let _ = tx.send(SearchStep::Done);
+}
+
+/// Recherche dans un dossier : les plus récents des messages trouvés (`None` :
+/// aucun, ou dossier et critère refusés par le serveur).
+fn search_folder(s: &mut Session, path: &str, keys: &[SearchKey]) -> imap_lite::Result<Option<Vec<FetchItem>>> {
+    match s.select(path) {
+        Ok(_) => {}
+        Err(e) if e.is_connection_lost() => return Err(e),
+        Err(_) => return Ok(None),
+    }
+    let uids = match s.uid_search_keys(keys) {
+        Ok(uids) => uids,
+        Err(e) if e.is_connection_lost() => return Err(e),
+        Err(_) => return Ok(None), // critère refusé par ce dossier
+    };
+    let recent: Vec<u32> = uids.iter().rev().take(SEARCH_PER_FOLDER).copied().collect();
+    if recent.is_empty() {
+        return Ok(None);
+    }
+    s.uid_fetch(&recent, SEARCH_QUERY).map(Some)
 }
 
 fn imap_search_keys(q: &SearchQuery) -> Vec<SearchKey> {
@@ -3160,6 +3189,11 @@ mod tests {
         refused: Vec<String>,
         /// Dossier dont la sélection fait attendre (serveur lent, lot J14).
         slow_select: Option<(String, std::time::Duration)>,
+        /// Délai de lecture joué (lot N2) : le dossier lent ne fait plus
+        /// attendre l'écriture, la lecture répond `WouldBlock` à chaque délai
+        /// écoulé jusqu'à `stalled_until`, comme un socket à délai de lecture.
+        tick: Option<std::time::Duration>,
+        stalled_until: Option<std::time::Instant>,
         received: Arc<Mutex<Vec<String>>>,
     }
 
@@ -3180,6 +3214,8 @@ mod tests {
                 fetch,
                 refused: Vec::new(),
                 slow_select: None,
+                tick: None,
+                stalled_until: None,
                 received: Arc::clone(received),
             };
             let stream: Box<dyn crate::transport::Stream> = Box::new(server);
@@ -3199,6 +3235,8 @@ mod tests {
                 fetch,
                 refused: Vec::new(),
                 slow_select: None,
+                tick: None,
+                stalled_until: None,
                 received: Arc::clone(&received),
             };
             let stream: Box<dyn crate::transport::Stream> = Box::new(server);
@@ -3207,6 +3245,17 @@ mod tests {
 
         /// Serveur dont la sélection du dossier `folder` prend `delay` (lot J14).
         fn slow(found: Option<u32>, fetch: String, folder: &str, delay: std::time::Duration) -> (Session, Arc<Mutex<Vec<String>>>) {
+            Self::slow_with(found, fetch, folder, delay, None)
+        }
+
+        /// Comme [`Scripted::slow`], avec un délai de lecture joué (`tick`, lot N2).
+        fn slow_with(
+            found: Option<u32>,
+            fetch: String,
+            folder: &str,
+            delay: std::time::Duration,
+            tick: Option<std::time::Duration>,
+        ) -> (Session, Arc<Mutex<Vec<String>>>) {
             let received = Arc::new(Mutex::new(Vec::new()));
             let server = Scripted {
                 to_client: b"* OK [CAPABILITY IMAP4rev1 MOVE UIDPLUS] pret\r\n".iter().copied().collect(),
@@ -3218,6 +3267,8 @@ mod tests {
                 fetch,
                 refused: Vec::new(),
                 slow_select: Some((folder.to_owned(), delay)),
+                tick,
+                stalled_until: None,
                 received: Arc::clone(&received),
             };
             let stream: Box<dyn crate::transport::Stream> = Box::new(server);
@@ -3237,6 +3288,8 @@ mod tests {
                 fetch: String::new(),
                 refused: refused.iter().map(|start| (*start).to_string()).collect(),
                 slow_select: None,
+                tick: None,
+                stalled_until: None,
                 received: Arc::clone(&received),
             };
             let stream: Box<dyn crate::transport::Stream> = Box::new(server);
@@ -3257,7 +3310,10 @@ mod tests {
             let rest = text.split_once(' ').map_or("", |(_, rest)| rest);
             if let Some((folder, delay)) = &self.slow_select {
                 if verb == "SELECT" && rest.contains(folder.as_str()) {
-                    std::thread::sleep(*delay);
+                    match self.tick {
+                        Some(_) => self.stalled_until = Some(std::time::Instant::now() + *delay),
+                        None => std::thread::sleep(*delay),
+                    }
                 }
             }
             if self.refused.iter().any(|start| rest.starts_with(start.as_str())) {
@@ -3282,6 +3338,12 @@ mod tests {
 
     impl Read for Scripted {
         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if let (Some(tick), Some(until)) = (self.tick, self.stalled_until) {
+                if std::time::Instant::now() < until {
+                    std::thread::sleep(tick);
+                    return Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "délai de lecture joué"));
+                }
+            }
             let n = buf.len().min(self.to_client.len());
             for (slot, byte) in buf.iter_mut().zip(self.to_client.drain(..n)) {
                 *slot = byte;
@@ -3814,6 +3876,29 @@ mod tests {
     }
 
     #[test]
+    fn n2_dossier_lent_arrete_a_l_echeance() {
+        let cache = Arc::new(Mutex::new(Cache::in_memory().unwrap()));
+        let router = Router::new(vec![config("mailo")], Arc::clone(&cache));
+        let account = Arc::clone(&router.all_accounts()[0]);
+        guard(&account.state).folders = build_folders("mailo", vec![entry("INBOX", &[]), entry("Lent", &[])]);
+        let delay = std::time::Duration::from_secs(5);
+        let tick = std::time::Duration::from_millis(20);
+        let (mut session, _) = Scripted::slow_with(None, String::new(), "Lent", delay, Some(tick));
+        session.set_patience(Some(std::time::Duration::from_mins(1)));
+        *account.sync.lock().unwrap() = Some(session);
+
+        let started = std::time::Instant::now();
+        let report = router.search_within(&SearchQuery::parse("devis").unwrap(), std::time::Duration::from_millis(200));
+        assert_eq!(report.unfinished, 1, "« Lent » non parcouru");
+        assert_eq!(report.errors.len(), 0, "arrêt à l'échéance : pas une erreur du compte ({:?})", report.errors);
+        // Arrêté un délai de lecture après l'échéance, pas à la fin du dossier lent.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let sync = account.sync.try_lock().expect("connexion de synchronisation libre bien avant la fin du dossier lent");
+        assert!(sync.is_none(), "connexion abandonnée : la réponse est restée à moitié lue");
+        assert!(started.elapsed() < delay, "{:?}", started.elapsed());
+    }
+
+    #[test]
     fn j14_dossiers_les_plus_utiles_d_abord() {
         let mut roles = [FolderRole::Custom, FolderRole::Archive, FolderRole::Inbox, FolderRole::Drafts, FolderRole::Sent];
         roles.sort_by_key(|r| search_rank(*r));
@@ -3974,6 +4059,34 @@ mod tests {
         let mut sample = raw[..split].to_vec();
         sample.extend_from_slice(preview_sample(&raw[split..split + PREVIEW_BYTES]));
         assert_eq!(mimeparse::preview(&parse_for_preview(&sample)), "moi@exemple.fr a accepté votre invitation.", "début seulement");
+    }
+
+    #[test]
+    fn o_apercu_sans_la_ligne_vide_des_en_tetes() {
+        // Message court envoyé par Vortex Mail : texte « test » et sa version HTML.
+        let draft = Draft {
+            from_email: "fabrice_test@mailo.com".into(),
+            to: vec!["fabrice_test@mailo.com".into()],
+            subject: "test".into(),
+            html: "<p>test</p>".into(),
+            ..Draft::default()
+        };
+        let raw = compose::build(&draft, 1_700_000_000, "<o@mailo.com>");
+        let blank = raw.windows(4).position(|w| w == b"\r\n\r\n").expect("fin des en-têtes");
+        let text = &raw[blank + 4..];
+        // En-têtes sans leur ligne vide, comme certains serveurs les rendent pour `HEADER.FIELDS`.
+        let headers = &raw[..blank + 2];
+        let mut broken = headers.to_vec();
+        broken.extend_from_slice(text);
+        let before = mimeparse::preview(&parse_for_preview(&broken));
+        assert!(before.contains("Content-Type"), "défaut reproduit (aperçu d'avant le lot O) : {before}");
+        for headers in [headers, &raw[..blank], &raw[..blank + 4]] {
+            let mut sample = header_block(headers);
+            sample.extend_from_slice(text);
+            let end = String::from_utf8_lossy(&headers[headers.len().saturating_sub(4)..]);
+            assert_eq!(mimeparse::preview(&parse_for_preview(&sample)), "test", "fin des en-têtes : {end:?}");
+        }
+        assert_eq!(header_block(b""), b"\r\n", "sans en-têtes : le texte reste le corps");
     }
 
     #[test]

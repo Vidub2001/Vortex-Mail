@@ -9,7 +9,9 @@ import {
   useToastController,
 } from "@fluentui/react-components";
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { ChoiceDialog, ConfirmDialog, PromptDialog } from "./components/Dialogs";
+import { ChoiceDialog, ConfirmDialog, NewFolderDialog, PromptDialog } from "./components/Dialogs";
+import { MovePicker } from "./components/MovePicker";
+import { rememberMoveTarget } from "./move-targets";
 import { ReconnectBar } from "./components/ReconnectBar";
 import { listen } from "@tauri-apps/api/event";
 import { api, runningInTauri } from "./api";
@@ -335,6 +337,22 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
       setFoldersLoading(false);
     }
   }, [fail]);
+
+  // Bouton « Actualiser les dossiers » (lot P) : un clic pendant une relecture
+  // en programme une autre, lancée dès la fin de celle-ci.
+  const foldersAgain = useRef(false);
+  const refreshFolders = useCallback(() => {
+    if (foldersLoading) {
+      foldersAgain.current = true;
+      return;
+    }
+    void reloadFolders();
+  }, [foldersLoading, reloadFolders]);
+  useEffect(() => {
+    if (foldersLoading || !foldersAgain.current) return;
+    foldersAgain.current = false;
+    void reloadFolders();
+  }, [foldersLoading, reloadFolders]);
 
   /**
    * Liste d'un dossier : d'abord le cache (immédiat), puis la synchronisation.
@@ -703,7 +721,11 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
     return f ? t("« {folder} » ({account})", { folder: f.name, account: a?.name ?? f.accountId }) : id;
   };
 
-  const moveTo = (targetId: string, ids: number[]) => runMove(ids, describeFolder(targetId), () => api.moveMessages(ids, targetId));
+  const moveTo = (targetId: string, ids: number[]) => {
+    // Dossiers récents du sous-menu « Déplacer » du clic droit (lot Q).
+    rememberMoveTarget(targetId);
+    return runMove(ids, describeFolder(targetId), () => api.moveMessages(ids, targetId));
+  };
 
   const moveIdsToRole = (ids: number[], role: FolderRole, label: string) => runMove(ids, label, () => api.moveToRole(ids, role));
 
@@ -1059,6 +1081,54 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
 
   /** Clic droit : la sélection si le message en fait partie, sinon lui seul. */
   const selectionWith = (m: MessageSummary) => (selectedSet.has(m.id) ? selectedIds : [m.id]);
+
+  /**
+   * Clic droit › Déplacer : sous-menu avec les dossiers récents, la recherche
+   * parmi les dossiers de tous les comptes, et « Créer un dossier… » (lot Q).
+   */
+  const movePanel = (m: MessageSummary, close: () => void) => {
+    const ids = selectionWith(m);
+    const chosen = new Set(ids);
+    const sources = new Set(messages.filter((x) => chosen.has(x.id)).map((x) => x.folderId));
+    return (
+      <MovePicker
+        accounts={accounts}
+        folders={folders}
+        exclude={sources.size === 1 ? sources : new Set<string>()}
+        onMove={(target) => {
+          close();
+          void moveTo(target, ids);
+        }}
+        onCreate={(name) => {
+          close();
+          createFolderAndMove(m.accountId, name, ids);
+        }}
+      />
+    );
+  };
+
+  /**
+   * « Créer un dossier… » du sous-menu Déplacer : nom et compte choisis (celui
+   * du message par défaut), dossier créé au premier niveau du compte, puis
+   * messages déplacés dedans (lot Q).
+   */
+  const createFolderAndMove = (accountId: string, initial: string, ids: number[]) => {
+    setDialog(
+      <NewFolderDialog
+        accounts={accounts}
+        initialAccount={accountId}
+        initialName={initial}
+        onSubmit={async (target, name) => {
+          const listing = await api.createFolder(target, null, name);
+          applyListing(listing);
+          notify(t("Dossier créé"), name);
+          const created = listing.folders.find((f) => f.accountId === target && f.parentId === null && f.name === name);
+          if (created) void moveTo(created.id, ids);
+        }}
+        onClose={() => setDialog(null)}
+      />,
+    );
+  };
 
   /** Clic droit › Marquer comme lu / non lu : d'après l'état du message cliqué. */
   const menuSeen = async (m: MessageSummary) => {
@@ -1651,7 +1721,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
               setFocusAccount(null);
               changeUnifiedView(unified);
             }}
-            onRetry={reloadFolders}
+            onRetry={refreshFolders}
             onAddAccount={() => setSettingsOpen(true)}
             onCompose={startCompose}
             onSelect={(id) => {
@@ -1727,6 +1797,7 @@ function Shell({ theme }: { theme: ReturnType<typeof useThemeMode> }) {
             onQuickFlag={quickFlag}
             onQuickDelete={quickDelete}
             onMenuDelete={menuDelete}
+            movePanel={movePanel}
             onMenuRestore={menuRestore}
             restorable={(m) => inTrash(m.id)}
             onCreateRule={createRule}

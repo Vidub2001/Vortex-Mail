@@ -206,6 +206,12 @@ body.resizing iframe {
   width: min(460px, 92vw) !important;
 }
 
+.new-folder {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .dialog-text {
   margin: 0;
 }
@@ -801,6 +807,99 @@ body.resizing iframe {
 .move-menu {
   max-height: 60vh;
   overflow-y: auto;
+}
+
+/* « Déplacer vers » du clic droit : sous-menu (lot Q) */
+.context-item.has-panel.open {
+  background: var(--colorNeutralBackground1Hover);
+}
+
+.context-chevron {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--colorNeutralForeground3);
+}
+
+.context-panel {
+  position: absolute;
+  width: 300px;
+  padding: 8px;
+  border-radius: var(--borderRadiusMedium);
+  background: var(--colorNeutralBackground1);
+  box-shadow: var(--shadow16);
+  border: 1px solid var(--colorNeutralStroke2);
+}
+
+.move-search {
+  width: 100%;
+}
+
+.move-clear {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--colorNeutralForeground3);
+  cursor: pointer;
+}
+
+.move-targets {
+  max-height: min(50vh, 380px);
+  margin-top: 8px;
+  overflow-y: auto;
+}
+
+.move-account {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 4px;
+  color: var(--colorNeutralForeground3);
+  font-size: var(--fontSizeBase200);
+  font-weight: var(--fontWeightSemibold);
+}
+
+.move-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.move-target.active {
+  background: var(--colorNeutralBackground1Hover);
+}
+
+.move-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-parents {
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--colorNeutralForeground3);
+  font-size: var(--fontSizeBase200);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-actions {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--colorNeutralStroke2);
+}
+
+.move-actions .context-item {
+  width: 100%;
+}
+
+.move-empty {
+  margin: 12px 10px;
+  color: var(--colorNeutralForeground3);
 }
 
 /* ---------- Étiquette de glisser-déposer ---------- */

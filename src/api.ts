@@ -396,9 +396,14 @@ export const api = {
   /** Rappel de rendez-vous : notification du bureau. */
   showReminder: (summary: string, body: string): Promise<void> =>
     inTauri ? invoke("show_reminder", { summary, body }) : Promise.resolve(),
-  /** Nouveaux messages restés dans une boîte de réception après les règles : notification du bureau (lot B4). */
-  notifyNewMail: (summary: string, body: string): Promise<void> =>
-    inTauri ? invoke("notify_new_mail", { summary, body }) : Promise.resolve(),
+  /**
+   * Nouveaux messages restés dans une boîte de réception après les règles :
+   * notification du bureau (lot B4), une par compte, qui additionne les
+   * messages tant qu'elle reste affichée (lots M1 et P). `summary` et `body`
+   * servent pour un message seul, `accountName` pour plusieurs.
+   */
+  notifyNewMail: (account: string, added: number, summary: string, body: string, accountName: string): Promise<void> =>
+    inTauri ? invoke("notify_new_mail", { account, added, summary, body, accountName }) : Promise.resolve(),
   /** Fermer la fenêtre principale la cache dans la zone de notification (lot B3). */
   setKeepInTray: (keep: boolean): Promise<void> => (inTauri ? invoke("set_keep_in_tray", { keep }) : Promise.resolve()),
   /** Règles et signatures du cache chiffré (audit S8) : (clé, valeur). */

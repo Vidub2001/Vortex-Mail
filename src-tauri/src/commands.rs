@@ -954,10 +954,21 @@ pub(crate) async fn show_reminder(app: tauri::AppHandle, summary: String, body: 
 /// Nouveaux messages restés dans une boîte de réception après les règles :
 /// notification du bureau (lot B4 ; l'interface l'envoie après le passage des
 /// règles, pour ne pas annoncer un message qu'elles mettent à la corbeille).
+/// Une notification par compte, qui additionne les messages tant qu'elle
+/// reste affichée (lots M1 et P) : `added` messages de plus, `summary` et
+/// `body` pour un message seul, `account_name` pour plusieurs.
 #[tauri::command]
-pub(crate) async fn notify_new_mail(app: tauri::AppHandle, summary: String, body: String) -> CmdResult<()> {
+pub(crate) async fn notify_new_mail(
+    app: tauri::AppHandle,
+    account: String,
+    added: u32,
+    summary: String,
+    body: String,
+    account_name: String,
+) -> CmdResult<()> {
     blocking(move || {
-        crate::idle::desktop_notify(&app, &summary, &body, "mail-unread", "email.arrived");
+        let arrivals = crate::idle::Arrivals { account: &account, added, summary: &summary, body: &body, account_name: &account_name };
+        crate::idle::notify_arrivals(&app, &arrivals);
         Ok(())
     })
     .await

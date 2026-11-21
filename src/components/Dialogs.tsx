@@ -13,6 +13,7 @@ import {
 } from "@fluentui/react-components";
 import { useState } from "react";
 import { t } from "../i18n";
+import type { Account } from "../types";
 
 /** Demande d'un nom (nouveau dossier…). `onSubmit` rejette avec le message d'erreur. */
 export function PromptDialog(p: {
@@ -165,6 +166,76 @@ export function ChoiceDialog(p: {
             <Button appearance="primary" disabled={busy} onClick={submit}
               icon={busy ? <Spinner size="tiny" /> : undefined}>
               {p.confirm}
+            </Button>
+            <Button disabled={busy} onClick={p.onClose}>
+              {t("Annuler")}
+            </Button>
+          </DialogActions>
+        </DialogBody>
+      </DialogSurface>
+    </Dialog>
+  );
+}
+
+/**
+ * Nouveau dossier choisi depuis « Déplacer » du clic droit (lot Q) : son nom
+ * et le compte où le créer (premier niveau), celui du message par défaut.
+ */
+export function NewFolderDialog(p: {
+  accounts: Account[];
+  initialAccount: string;
+  initialName: string;
+  onSubmit: (accountId: string, name: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(p.initialName);
+  const [accountId, setAccountId] = useState(p.accounts.some((a) => a.id === p.initialAccount) ? p.initialAccount : (p.accounts[0]?.id ?? ""));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    if (!name.trim() || !accountId || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await p.onSubmit(accountId, name.trim());
+      p.onClose();
+    } catch (e) {
+      setError(String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(_, d) => !d.open && !busy && p.onClose()}>
+      <DialogSurface className="small-dialog">
+        <DialogBody>
+          <DialogTitle>{t("Nouveau dossier")}</DialogTitle>
+          <DialogContent className="new-folder">
+            <Field label={t("Nom du dossier")} validationMessage={error ?? undefined} validationState={error ? "error" : "none"}>
+              <Input
+                autoFocus
+                value={name}
+                disabled={busy}
+                onChange={(_, d) => setName(d.value)}
+                onKeyDown={(e) => e.key === "Enter" && submit()}
+              />
+            </Field>
+            {p.accounts.length > 1 && (
+              <Field label={t("Dans le compte")}>
+                <Select value={accountId} disabled={busy} onChange={(_, d) => setAccountId(d.value)}>
+                  {p.accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button appearance="primary" disabled={!name.trim() || busy} onClick={submit} icon={busy ? <Spinner size="tiny" /> : undefined}>
+              {t("Créer et déplacer")}
             </Button>
             <Button disabled={busy} onClick={p.onClose}>
               {t("Annuler")}

@@ -1,6 +1,7 @@
 //! Lecture des réponses brutes : lignes CRLF et littéraux `{n}`.
 
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
+use std::time::{Duration, Instant};
 
 use crate::limits::{exceeded, Limit, MAX_COMMAND_LITERALS, MAX_COMMAND_TEXT, MAX_LINE, MAX_LITERAL, MAX_LITERALS, MAX_RESPONSES};
 use crate::{Error, Result};
@@ -17,11 +18,26 @@ pub(crate) struct Connection<S> {
     responses: usize,
     text: usize,
     literal_bytes: usize,
+    /// Attente tolérée sans rien recevoir quand le flux a un délai de lecture
+    /// plus court (lot N2) ; `None` : le délai de lecture du flux fait foi.
+    patience: Option<Duration>,
+    /// Échéance de la commande en cours (lot N2), vérifiée à chaque délai de
+    /// lecture écoulé.
+    deadline: Option<Instant>,
 }
 
 impl<S: Read + Write> Connection<S> {
     pub(crate) fn new(stream: S) -> Self {
-        Self { stream, buf: Vec::with_capacity(16 * 1024), start: 0, responses: 0, text: 0, literal_bytes: 0 }
+        Self {
+            stream,
+            buf: Vec::with_capacity(16 * 1024),
+            start: 0,
+            responses: 0,
+            text: 0,
+            literal_bytes: 0,
+            patience: None,
+            deadline: None,
+        }
     }
 
     /// Une nouvelle commande commence : ses plafonds repartent de zéro, et le
@@ -35,6 +51,38 @@ impl<S: Read + Write> Connection<S> {
             self.buf.drain(..self.start);
             self.start = 0;
             self.buf.shrink_to(BUF_KEPT);
+        }
+    }
+
+    pub(crate) fn set_patience(&mut self, patience: Option<Duration>) {
+        self.patience = patience;
+    }
+
+    pub(crate) fn take_patience(&mut self) -> Option<Duration> {
+        self.patience.take()
+    }
+
+    pub(crate) fn set_deadline(&mut self, deadline: Option<Instant>) {
+        self.deadline = deadline;
+    }
+
+    /// Lit quelques octets. Un délai de lecture écoulé (`WouldBlock` ou
+    /// `TimedOut`) est attendu de nouveau tant que la patience le permet,
+    /// sauf si l'échéance de la commande est passée (lot N2).
+    fn read_some(&mut self, into: &mut [u8]) -> Result<usize> {
+        let waiting = Instant::now();
+        loop {
+            match self.stream.read(into) {
+                Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                    if self.deadline.is_some_and(|d| Instant::now() >= d) {
+                        return Err(Error::Io(std::io::Error::new(ErrorKind::TimedOut, "échéance de la commande dépassée")));
+                    }
+                    if self.patience.is_none_or(|p| waiting.elapsed() >= p) {
+                        return Err(Error::Io(e));
+                    }
+                }
+                other => return Ok(other?),
+            }
         }
     }
 
@@ -59,7 +107,7 @@ impl<S: Read + Write> Connection<S> {
             self.start = 0;
         }
         let mut chunk = [0u8; 16 * 1024];
-        let n = self.stream.read(&mut chunk)?;
+        let n = self.read_some(&mut chunk)?;
         if n == 0 {
             return Err(Error::Io(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "connexion fermée par le serveur")));
         }
@@ -109,7 +157,7 @@ impl<S: Read + Write> Connection<S> {
         let mut at = out.len();
         out.resize(at + (n - buffered), 0);
         while at < out.len() {
-            let read = self.stream.read(&mut out[at..])?;
+            let read = self.read_some(&mut out[at..])?;
             if read == 0 {
                 return Err(Error::Io(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "connexion fermée par le serveur")));
             }
@@ -184,6 +232,64 @@ mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    /// Flux dont chaque lecture voit d'abord `ticks` délais écoulés, puis les données.
+    struct Slow {
+        data: Cursor<Vec<u8>>,
+        ticks: usize,
+        tick: Duration,
+    }
+    impl Read for Slow {
+        fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+            if self.ticks > 0 {
+                self.ticks -= 1;
+                std::thread::sleep(self.tick);
+                return Err(std::io::Error::new(ErrorKind::WouldBlock, "délai de lecture"));
+            }
+            self.data.read(b)
+        }
+    }
+    impl Write for Slow {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    fn slow(ticks: usize) -> Connection<Slow> {
+        Connection::new(Slow { data: Cursor::new(b"A1 OK done\r\n".to_vec()), ticks, tick: Duration::from_millis(5) })
+    }
+    fn timed_out(r: Result<Vec<u8>>) -> bool {
+        matches!(r, Err(Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut))
+    }
+
+    #[test]
+    fn n2_sans_patience_le_delai_du_flux_fait_foi() {
+        assert!(timed_out(slow(1).read_response()), "comportement d'avant : premier délai écoulé, erreur");
+    }
+
+    #[test]
+    fn n2_patience_attend_plusieurs_delais() {
+        let mut c = slow(3);
+        c.set_patience(Some(Duration::from_secs(5)));
+        assert_eq!(c.read_response().expect("réponse après trois délais"), b"A1 OK done");
+        let mut c = slow(50);
+        c.set_patience(Some(Duration::from_millis(20)));
+        assert!(timed_out(c.read_response()), "patience épuisée");
+    }
+
+    #[test]
+    fn n2_echeance_passee_arrete_la_commande() {
+        let mut c = slow(3);
+        c.set_patience(Some(Duration::from_secs(5)));
+        c.set_deadline(Some(Instant::now()));
+        let started = Instant::now();
+        assert!(timed_out(c.read_response()), "échéance passée : arrêt au premier délai écoulé");
+        assert!(started.elapsed() < Duration::from_secs(1), "sans attendre la patience");
+        c.set_deadline(None);
+        assert_eq!(c.read_response().expect("échéance retirée : lecture normale"), b"A1 OK done");
     }
 
     #[test]

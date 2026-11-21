@@ -26,6 +26,7 @@ import type { Account, Folder } from "../types";
 import { UNIFIED_ROLES, members, unifiedFolder, unifiedId } from "../unified";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { FolderIcon } from "./FolderIcon";
+import { VortexSpinner } from "./VortexSpinner";
 import { folderTree } from "../folder-tree";
 import { t } from "../i18n";
 
@@ -368,12 +369,13 @@ export function FolderPane(p: Props) {
               </MenuPopover>
             </Menu>
           )}
+          {/* Pendant une relecture : le tourbillon, et un clic en programme une autre juste après (lot P). */}
           <Button
             appearance="subtle"
-            icon={<ArrowSync16Regular />}
-            title={t("Actualiser les dossiers")}
-            aria-label={t("Actualiser les dossiers")}
-            disabled={p.loading}
+            icon={p.loading ? <VortexSpinner /> : <ArrowSync16Regular />}
+            title={p.loading ? t("Actualisation des dossiers en cours") : t("Actualiser les dossiers")}
+            aria-label={p.loading ? t("Actualisation des dossiers en cours") : t("Actualiser les dossiers")}
+            aria-busy={p.loading}
             onClick={p.onRetry}
           />
         </span>

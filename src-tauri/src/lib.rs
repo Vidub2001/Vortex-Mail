@@ -67,7 +67,7 @@ pub mod corpus_api {
     /// Arguments passés à `notify-send` pour une notification.
     #[must_use]
     pub fn notify_send_args(summary: &str, body: &str) -> Vec<String> {
-        crate::idle::notify_send_args(summary, body, "mail-unread", "email.arrived")
+        crate::idle::notify_send_args(summary, body, "mail-unread", "email.arrived", &[])
     }
 
     /// Noms des pièces jointes d'un message, tels que l'interface les affiche.

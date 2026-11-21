@@ -545,18 +545,18 @@ export async function runInboxRules(folders: Folder[]): Promise<InboxReport | nu
 /**
  * Notification du bureau pour les nouveaux messages restés dans les boîtes de
  * réception, une par compte : expéditeur et objet pour un message seul, le
- * nombre au-delà (arrivée groupée, synchronisation d'un autre appareil).
+ * nombre au-delà. Le backend additionne les messages tant que la
+ * notification du compte reste affichée (lots M1 et P).
  */
 export function announceArrivals(arrivals: MessageSummary[], accounts: { id: string; name: string }[]) {
   const byAccount = new Map<string, MessageSummary[]>();
   for (const m of arrivals) byAccount.set(m.accountId, [...(byAccount.get(m.accountId) ?? []), m]);
   for (const [accountId, list] of byAccount) {
     const name = accounts.find((a) => a.id === accountId)?.name ?? accountId;
-    const [summary, body] =
-      list.length === 1
-        ? [list[0].fromName || list[0].fromEmail || t("Nouveau message"), `${list[0].subject.trim() || t("(sans objet)")}\n${name}`]
-        : [t("{n} nouveaux messages", { n: list.length }), name];
-    api.notifyNewMail(summary, body).catch(() => {
+    const first = list[0];
+    const summary = first.fromName || first.fromEmail || t("Nouveau message");
+    const body = `${first.subject.trim() || t("(sans objet)")}\n${name}`;
+    api.notifyNewMail(accountId, list.length, summary, body, name).catch(() => {
       // notification du bureau indisponible : la liste des messages suffit
     });
   }

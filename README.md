@@ -52,7 +52,7 @@ Releases are built from this repository by GitHub Actions. Each one comes with `
 
 Windows files are not signed yet, so Windows may show a warning on first install.
 
-> **Status:** version 0.3.5, used every day by its author. Feedback and bug reports are welcome.
+> **Status:** version 0.3.6, used every day by its author. Feedback and bug reports are welcome.
 
 ## Features
 
@@ -80,7 +80,8 @@ Windows files are not signed yet, so Windows may show a warning on first install
   forward, drag-and-drop attachments, automatic draft saving, recipient suggestions,
   **forgotten-attachment warning**.
 - Moving and deleting across accounts, with a journal: an interrupted move (network loss, app
-  closed) is resumed at next start-up, without duplicates or loss.
+  closed) is resumed at next start-up, without duplicates or loss. Right-click › “Move”: recent
+  folders, search across the folders of every account, or a new folder in the chosen account.
 - Message import and export: one message as `.eml`, a folder as `.mbox` (Downloads); `.eml` and `.mbox` files (Thunderbird's included) imported into the chosen folder.
 - Calendar (`.ics`) and address book (`.vcf`) import and export, without duplicates when imported twice.
 - Search across every folder of every account, message bodies included, with criteria: `from:`, `to:`, `subject:`, `before:2026-11-16`, `after:`, `is:unread`, `is:flagged`, `has:attachment`, `"exact phrase"`, `-word` to exclude.

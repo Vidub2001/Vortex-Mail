@@ -626,6 +626,45 @@ fn repair_base64_previews(conn: &Connection) -> Res<()> {
     Ok(())
 }
 
+/// Aperçu gâché par des en-têtes arrivés sans leur ligne vide (lot O) : le
+/// texte, puis un délimiteur MIME suivi des en-têtes de la partie suivante
+/// (« test --=_vortex_… Content-Type: text/html… »). Rend le texte seul, ou
+/// `None` si l'aperçu n'a pas cette forme.
+fn preview_without_mime_leak(preview: &str) -> Option<String> {
+    let lower = preview.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(at) = lower[from..].find("--") {
+        let start = from + at;
+        let rest = &lower[start + 2..];
+        let token = rest.find(' ').unwrap_or(rest.len());
+        let alone = start == 0 || preview[..start].ends_with(' ');
+        if alone && token >= 6 && rest[token..].starts_with(" content-") {
+            return Some(preview[..start].trim_end().to_string());
+        }
+        from = start + 2;
+    }
+    None
+}
+
+/// Répare les aperçus gâchés du cache (voir [`preview_without_mime_leak`]).
+fn repair_mime_previews(conn: &Connection) -> Res<()> {
+    let broken: Vec<(String, String, u32, String)> = {
+        let mut stmt = conn.prepare("SELECT account, path, uid, preview FROM messages WHERE preview LIKE '%--%'").map_err(sql)?;
+        let rows = stmt.query_map(params![], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).map_err(sql)?;
+        rows.filter_map(Result::ok)
+            .filter_map(|(a, p, u, preview): (String, String, u32, String)| preview_without_mime_leak(&preview).map(|text| (a, p, u, text)))
+            .collect()
+    };
+    for (account, path, uid, preview) in broken {
+        conn.execute(
+            "UPDATE messages SET preview = ?4 WHERE account = ?1 AND path = ?2 AND uid = ?3",
+            params![account, path, uid, preview],
+        )
+        .map_err(sql)?;
+    }
+    Ok(())
+}
+
 /// Adresse collectée pour la complétion (lot J13).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CollectedAddress {
@@ -810,6 +849,12 @@ impl Cache {
             conn.execute_batch(SCHEMA).map_err(sql)?;
             collect_sent_history(&conn)?;
             conn.execute_batch("PRAGMA user_version = 4;").map_err(sql)?;
+        }
+        // Version 5 : aperçus gâchés par des en-têtes arrivés sans leur ligne
+        // vide (lot O), réparés une fois pour toutes.
+        if version < 5 {
+            repair_mime_previews(&conn)?;
+            conn.execute_batch("PRAGMA user_version = 5;").map_err(sql)?;
         }
         Ok(Self { conn, ids: HashMap::new(), reverse: HashMap::new(), next_id: ID_BASE, revisions: Revisions::starting_now() })
     }
@@ -2289,6 +2334,30 @@ mod tests {
         assert_eq!(c.header("a", "INBOX", 2).unwrap().unwrap().preview, "Bonjour");
     }
 
+    #[test]
+    fn o_apercus_gaches_repares() {
+        assert_eq!(
+            preview_without_mime_leak("test --=_vortex_d570c5a9062169e6 Content-Type: text/html; charset=utf-8").as_deref(),
+            Some("test")
+        );
+        assert_eq!(
+            preview_without_mime_leak("test notification ------=_NextPart_001_6aff0513_2b87_77190def Content-Type: text/html").as_deref(),
+            Some("test notification")
+        );
+        assert_eq!(preview_without_mime_leak("--=_vortex_ab12cd34 Content-Transfer-Encoding: base64").as_deref(), Some(""));
+        // Textes ordinaires : jamais touchés.
+        for ok in ["Rendez-vous -- à confirmer", "voir --help Content-Type", "a--b Content-Type", "Bonjour"] {
+            assert_eq!(preview_without_mime_leak(ok), None, "{ok}");
+        }
+        let mut c = Cache::in_memory().unwrap();
+        let mut broken = header(1, 10, false);
+        broken.preview = "test --=_vortex_5e0972a3ed358652 Content-Type: text/html; charset=utf-8".into();
+        c.upsert_headers("a", "INBOX", &[broken, header(2, 20, false)]).unwrap();
+        repair_mime_previews(&c.conn).unwrap();
+        assert_eq!(c.header("a", "INBOX", 1).unwrap().unwrap().preview, "test");
+        assert_eq!(c.header("a", "INBOX", 2).unwrap().unwrap().preview, "Bonjour");
+    }
+
     fn folder(account: &str, path: &str, role: FolderRole, parent: Option<&str>, depth: u32) -> Folder {
         Folder {
             id: format!("{account}:{path}"),
@@ -2885,7 +2954,7 @@ mod tests {
         let c = Cache::open_encrypted(&path, &key).unwrap();
         assert_eq!(c.cached_uids("a", "INBOX").unwrap(), vec![3], "messages repris");
         let version: i64 = c.conn.query_row("PRAGMA user_version", params![], |r| r.get(0)).unwrap();
-        assert_eq!(version, 4, "version du schéma reprise (4 depuis le lot J13)");
+        assert_eq!(version, 5, "version du schéma reprise (5 depuis le lot O)");
         drop(c);
         assert!(!is_plain(&path), "fichier remplacé par sa copie chiffrée");
         assert!(!g4_contains(&g4_bytes(&path), b"Sujet 3"), "plus rien en clair");

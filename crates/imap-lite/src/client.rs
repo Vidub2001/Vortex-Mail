@@ -466,6 +466,23 @@ impl<S: Read + Write> Client<S> {
         }
     }
 
+    /// Patience (lot N2) : attente tolérée sans rien recevoir, quand le flux a
+    /// un délai de lecture plus court. Chaque délai écoulé est alors attendu de
+    /// nouveau, jusqu'à la patience, et l'échéance de [`Client::set_deadline`]
+    /// est vérifiée à chaque fois. `None` (par défaut) : le premier délai de
+    /// lecture écoulé est une erreur, comme avant.
+    pub fn set_patience(&mut self, patience: Option<Duration>) {
+        self.conn.set_patience(patience);
+    }
+
+    /// Échéance des commandes suivantes (lot N2), `None` pour la retirer. Une
+    /// fois passée, la commande en cours s'arrête au délai de lecture suivant
+    /// du flux, avec une erreur `TimedOut` : la session doit alors être
+    /// abandonnée, la réponse du serveur restant à moitié lue.
+    pub fn set_deadline(&mut self, deadline: Option<Instant>) {
+        self.conn.set_deadline(deadline);
+    }
+
     /// Rend le flux, par exemple pour le chiffrer après `STARTTLS`.
     pub fn into_inner(self) -> S {
         self.conn.into_inner()
@@ -1246,23 +1263,37 @@ impl<S: Read + Write> Client<S> {
             changed = true;
         }
 
-        let start = Instant::now();
-        while !changed && keep_going() && start.elapsed() < max {
-            match self.conn.read_response() {
-                Ok(raw) => match parse_response(&raw)? {
-                    Response::Status { tag: None, kind: StatusKind::Bye, text, .. } => return Err(Error::Bye(text)),
-                    other => changed = is_change(&other),
-                },
-                // Délai de lecture écoulé sans nouvelle : on revérifie les conditions.
-                Err(Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
-                Err(e) => return Err(e),
-            }
+        // Chaque délai de lecture du flux rend la main, pour revérifier les
+        // conditions : la patience (lot N2) est suspendue pendant l'attente.
+        if !changed {
+            let patience = self.conn.take_patience();
+            let waited = self.idle_wait(max, keep_going);
+            self.conn.set_patience(patience);
+            changed = waited?;
         }
 
         self.conn.write_all(b"DONE\r\n")?;
         self.conn.flush()?;
         let out = self.collect(&tag, Vec::new())?;
         Ok(changed || out.data.iter().any(is_change))
+    }
+
+    /// Attente d'IDLE : `true` dès qu'un changement est signalé.
+    fn idle_wait(&mut self, max: Duration, keep_going: impl Fn() -> bool) -> Result<bool> {
+        let start = Instant::now();
+        while keep_going() && start.elapsed() < max {
+            match self.conn.read_response() {
+                Ok(raw) => match parse_response(&raw)? {
+                    Response::Status { tag: None, kind: StatusKind::Bye, text, .. } => return Err(Error::Bye(text)),
+                    other if is_change(&other) => return Ok(true),
+                    _ => {}
+                },
+                // Délai de lecture écoulé sans nouvelle : on revérifie les conditions.
+                Err(Error::Io(e)) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(false)
     }
 
     /// `NOOP` : garde la session ouverte et relève les nouveautés.

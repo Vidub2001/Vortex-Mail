@@ -21,6 +21,11 @@ const IO_TIMEOUT: Duration = Duration::from_secs(60);
 /// l'analyse ; abandonner avant ferait croire à un échec un envoi accepté
 /// (relecture complète n° 9).
 const SMTP_REPLY_TIMEOUT: Duration = Duration::from_mins(10);
+/// Délai de lecture d'une session IMAP ouverte (lot N2) : chaque délai écoulé
+/// est attendu de nouveau jusqu'à `IO_TIMEOUT` (patience d'`imap-lite`), et
+/// l'échéance d'une commande est vérifiée à chaque fois. Une recherche bornée
+/// s'arrête donc au plus 5 s après son échéance, au lieu de 60 s.
+const IMAP_TICK: Duration = Duration::from_secs(5);
 
 /// Connexion TCP à `host`, chaque adresse essayée à son tour, avec un délai
 /// de connexion et de lecture (IMAP, SMTP, serveur de jetons).
@@ -225,13 +230,17 @@ pub(crate) fn open_imap(cfg: &ServerConfig) -> Result<(Session, Security), Strin
     let secret = secret(cfg)?;
     let host = cfg.host.trim();
     let security = resolve(cfg.security, cfg.port, 993);
+    let raw = tcp(host, cfg.port)?;
+    // Même socket, pour régler son délai de lecture une fois la session
+    // ouverte, sous le chiffrement (lot N2).
+    let socket = raw.try_clone().ok();
     let mut session: Session = match security {
         Security::SslTls => {
-            let stream: Box<dyn Stream> = Box::new(tls(host, &cfg.pinned_cert, tcp(host, cfg.port)?)?);
+            let stream: Box<dyn Stream> = Box::new(tls(host, &cfg.pinned_cert, raw)?);
             Client::connect(stream).map_err(imap_err)?
         }
         Security::StartTls => {
-            let mut plain = Client::connect(tcp(host, cfg.port)?).map_err(imap_err)?;
+            let mut plain = Client::connect(raw).map_err(imap_err)?;
             if plain.capabilities().is_empty() {
                 plain.refresh_capabilities().map_err(imap_err)?;
             }
@@ -245,7 +254,7 @@ pub(crate) fn open_imap(cfg: &ServerConfig) -> Result<(Session, Security), Strin
             client
         }
         Security::Unencrypted | Security::Auto => {
-            let stream: Box<dyn Stream> = Box::new(tcp(host, cfg.port)?);
+            let stream: Box<dyn Stream> = Box::new(raw);
             Client::connect(stream).map_err(imap_err)?
         }
     };
@@ -288,6 +297,11 @@ pub(crate) fn open_imap(cfg: &ServerConfig) -> Result<(Session, Security), Strin
         imap_lite::Error::No(t) => tr!("Identifiant ou mot de passe refusé ({t})", t = t),
         other => other.to_string(),
     })?;
+    // Connexion et authentification faites avec le délai de 60 s ; ensuite,
+    // délai court et patience de 60 s (lot N2).
+    if socket.is_some_and(|s| s.set_read_timeout(Some(IMAP_TICK)).is_ok()) {
+        session.set_patience(Some(IO_TIMEOUT));
+    }
     Ok((session, security))
 }
 
@@ -633,7 +647,9 @@ mod tests {
     ///
     /// L'identité passe par un PKCS#12 : sous Windows (schannel),
     /// `Identity::from_pkcs8` n'importe que des clés RSA, et rcgen génère une
-    /// clé ECDSA P-256.
+    /// clé ECDSA P-256. Windows range la clé importée dans le profil de
+    /// l'utilisateur, protégé par DPAPI : l'agent Jenkins doit donc tourner
+    /// avec son mot de passe (pas en connexion S4U), voir docs/CI.md § 4.
     fn self_signed() -> (native_tls::Identity, Vec<u8>) {
         const ALIAS: &str = "serveur de test";
         const PASSWORD: &str = "test";

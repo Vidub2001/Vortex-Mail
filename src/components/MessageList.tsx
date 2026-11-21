@@ -20,12 +20,13 @@ import {
   Filter16Regular,
   Flag16Filled,
   Flag16Regular,
+  FolderArrowRight16Regular,
   MailRead16Regular,
   MailUnread16Regular,
   Open16Regular,
   Save16Regular,
 } from "@fluentui/react-icons";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { groupByDate, listDate } from "../format";
 import { useGeneral } from "../general";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
@@ -82,6 +83,11 @@ interface Props {
   onMenuFlag: (m: MessageSummary) => void;
   /** Clic droit › Supprimer (ce message, ou la sélection qui le contient). */
   onMenuDelete: (m: MessageSummary) => void;
+  /**
+   * Clic droit › Déplacer vers… : sous-menu de choix du dossier, pour le
+   * message ou la sélection qui le contient (lot Q) ; `close` ferme le menu.
+   */
+  movePanel: (m: MessageSummary, close: () => void) => ReactNode;
   /** Clic droit › Restaurer, pour un message d'« Éléments supprimés » (ou la sélection qui le contient). */
   onMenuRestore: (m: MessageSummary) => void;
   /** Le message est dans « Éléments supprimés » : « Restaurer » proposé. */
@@ -307,6 +313,7 @@ export function MessageList(p: Props) {
         disabled: !m.subject.trim(),
         onClick: () => p.onCreateRule(m, "subject"),
       },
+      { label: t("Déplacer"), icon: <FolderArrowRight16Regular />, panel: (close) => p.movePanel(m, close) },
       { label: t("Enregistrer (.eml)"), icon: <Save16Regular />, onClick: () => p.onExport(m) },
       ...(p.restorable(m) ? [{ label: t("Restaurer"), icon: <ArrowUndo16Regular />, onClick: () => p.onMenuRestore(m) }] : []),
       { label: t("Supprimer"), icon: <Delete16Regular />, danger: true, onClick: () => p.onMenuDelete(m) },

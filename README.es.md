@@ -52,7 +52,7 @@ Las versiones se compilan a partir de este repositorio con GitHub Actions. Cada 
 
 Los archivos de Windows aún no están firmados: Windows puede mostrar un aviso en la primera instalación.
 
-> **Estado:** versión 0.3.5, usada a diario por su autor. Se agradecen los comentarios y los avisos de errores.
+> **Estado:** versión 0.3.6, usada a diario por su autor. Se agradecen los comentarios y los avisos de errores.
 
 ## Funciones
 
@@ -80,7 +80,9 @@ Los archivos de Windows aún no están firmados: Windows puede mostrar un aviso 
   responder y reenviar, adjuntos con arrastrar y soltar, borradores guardados automáticamente,
   sugerencias de destinatarios, **aviso de adjunto olvidado**.
 - Mover y eliminar entre cuentas, con diario: un movimiento interrumpido (corte de red, aplicación
-  cerrada) se reanuda en el siguiente inicio, sin duplicados ni pérdidas.
+  cerrada) se reanuda en el siguiente inicio, sin duplicados ni pérdidas. Clic derecho › «Mover»:
+  carpetas recientes, búsqueda entre las carpetas de todas las cuentas o una carpeta nueva en la
+  cuenta elegida.
 - Importación y exportación de mensajes: un mensaje en `.eml`, una carpeta en `.mbox` (Descargas); importación de `.eml` y `.mbox` (incluidos los de Thunderbird) en la carpeta elegida.
 - Importación y exportación de calendarios (`.ics`) y libretas de direcciones (`.vcf`), sin duplicados al importar dos veces.
 - Búsqueda en todas las carpetas de todas las cuentas, incluido el contenido de los mensajes, con criterios: `from:`, `to:`, `subject:`, `before:2026-11-16`, `after:`, `is:unread`, `is:flagged`, `has:attachment`, `"frase exacta"`, `-palabra` para excluir.

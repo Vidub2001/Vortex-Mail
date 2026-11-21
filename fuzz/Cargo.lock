@@ -5645,7 +5645,7 @@ dependencies = [
 
 [[package]]
 name = "vortexmail"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "ammonia",
  "getrandom 0.2.17",
@@ -5666,6 +5666,7 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-single-instance",
  "vortex-smime",
+ "windows",
  "windows-sys 0.61.2",
 ]
 
